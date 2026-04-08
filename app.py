@@ -15,6 +15,37 @@ app = Flask(__name__)
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
+# ─────────────── 搜尋次數限制（保護 API 額度） ───────────────
+DAILY_LIMIT_PER_USER = 3  # 每人每天最多搜尋 3 次
+_usage_tracker = {}  # { "ip": { "date": "2026-04-08", "count": 5 } }
+
+
+def check_rate_limit():
+    """檢查使用者今日搜尋次數是否超過限制，回傳 (allowed, remaining)"""
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr) or "unknown"
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    if ip not in _usage_tracker or _usage_tracker[ip]["date"] != today:
+        _usage_tracker[ip] = {"date": today, "count": 0}
+
+    current = _usage_tracker[ip]["count"]
+    remaining = DAILY_LIMIT_PER_USER - current
+
+    if remaining <= 0:
+        return False, 0
+    return True, remaining
+
+
+def increment_usage():
+    """搜尋成功後，增加使用者的計數"""
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr) or "unknown"
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    if ip not in _usage_tracker or _usage_tracker[ip]["date"] != today:
+        _usage_tracker[ip] = {"date": today, "count": 0}
+
+    _usage_tracker[ip]["count"] += 1
+
 # ─────────────── 全球機場資料庫（7800+ 個機場） ───────────────
 
 _raw_airports = airportsdata.load("IATA")
@@ -278,6 +309,10 @@ def index():
 @app.route("/api/search", methods=["POST"])
 def api_search():
     """搜尋航班 API"""
+    allowed, remaining = check_rate_limit()
+    if not allowed:
+        return jsonify({"error": "⚠️ 今日搜尋次數已達上限（每人每天 3 次），明天再來吧！"}), 429
+
     data = request.json
     origin = data.get("origin", "").strip().upper()
     destination = data.get("destination", "").strip().upper()
@@ -290,6 +325,7 @@ def api_search():
         return jsonify({"error": "請填寫出發地、目的地和出發日期"}), 400
 
     try:
+        increment_usage()
         raw = search_flights(origin, destination, depart_date,
                              return_date=return_date, adults=adults,
                              nonstop=nonstop)
@@ -318,6 +354,11 @@ def api_smart_search():
     會搜未來 60 天，取樣 8 個出發日 × 搭配回程（3/5/7 天後），
     幫用戶找到預算內最划算的組合。
     """
+    allowed, remaining = check_rate_limit()
+    if not allowed:
+        return jsonify({"error": "⚠️ 今日搜尋次數已達上限（每人每天 3 次），明天再來吧！"}), 429
+    increment_usage()
+
     data = request.json
     origin = data.get("origin", "").strip().upper()
     destination = data.get("destination", "").strip().upper()
@@ -415,6 +456,11 @@ def api_explore():
     預算探索：給預算 + 出發地，自動掃描熱門目的地，
     看這個預算能去哪裡。
     """
+    allowed, remaining = check_rate_limit()
+    if not allowed:
+        return jsonify({"error": "⚠️ 今日搜尋次數已達上限（每人每天 3 次），明天再來吧！"}), 429
+    increment_usage()
+
     data = request.json
     origin = data.get("origin", "").strip().upper()
     budget = int(data.get("budget", 999999))
