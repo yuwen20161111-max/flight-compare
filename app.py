@@ -400,40 +400,54 @@ def api_search():
         # 城市代碼轉換（Travelpayouts 用城市代碼）
         origin_city = get_city_code(origin)
         dest_city = get_city_code(destination)
+        code_pairs = list(dict.fromkeys([
+            (origin, destination), (origin_city, dest_city),
+            (origin, dest_city), (origin_city, destination),
+        ]))
 
         tickets = []
+        seen_prices = set()  # 避免重複
 
-        # 方法 1：用 latest prices（同時試機場碼和城市碼）
-        for orig, dest in [(origin, destination), (origin_city, dest_city), (origin, dest_city)]:
-            if tickets:
-                break
+        # 方法 1：latest prices（多組代碼都試）
+        for orig, dest in code_pairs:
             raw = search_latest_prices(
-                orig, dest,
-                direct=nonstop,
-                one_way=(return_date is None),
-                limit=30,
+                orig, dest, direct=nonstop,
+                one_way=(return_date is None), limit=30,
             )
-            if raw.get("error"):
-                continue
-            tickets = raw.get("data", [])
+            for t in raw.get("data", []):
+                price_key = f"{t.get('value',0)}_{t.get('airline','')}_{t.get('depart_date','')}"
+                if price_key not in seen_prices:
+                    seen_prices.add(price_key)
+                    tickets.append(t)
 
-        # 方法 2：用 cheap tickets（同時試機場碼和城市碼）
-        if not tickets:
-            for orig, dest in [(origin, destination), (origin_city, dest_city), (origin, dest_city)]:
-                if tickets:
-                    break
-                raw2 = search_cheap_tickets(
-                    orig, dest,
-                    depart_date=depart_date[:7],
-                    return_date=return_date[:7] if return_date else None,
-                    direct=nonstop,
-                )
-                if raw2.get("data"):
-                    # cheap tickets 的 data 結構是 { "城市碼": { "0": {...}, "1": {...} } }
-                    for dest_key, dest_data in raw2["data"].items():
-                        if isinstance(dest_data, dict):
-                            for key, ticket in dest_data.items():
+        # 方法 2：cheap tickets（多組代碼都試）
+        for orig, dest in code_pairs:
+            raw2 = search_cheap_tickets(
+                orig, dest,
+                depart_date=depart_date[:7],
+                return_date=return_date[:7] if return_date else None,
+                direct=nonstop,
+            )
+            if raw2.get("data"):
+                for dest_key, dest_data in raw2["data"].items():
+                    if isinstance(dest_data, dict):
+                        for key, ticket in dest_data.items():
+                            price_key = f"{ticket.get('price',0)}_{ticket.get('airline','')}_{ticket.get('departure_at','')[:10]}"
+                            if price_key not in seen_prices:
+                                seen_prices.add(price_key)
                                 tickets.append(ticket)
+
+        # 方法 3：月份矩陣（更多價格資料）
+        for orig, dest in code_pairs[:2]:
+            try:
+                raw3 = search_month_matrix(orig, dest, depart_date[:7] + "-01")
+                for t in raw3.get("data", []):
+                    price_key = f"{t.get('value',0)}_{t.get('airline','')}_{t.get('depart_date','')}"
+                    if price_key not in seen_prices:
+                        seen_prices.add(price_key)
+                        tickets.append(t)
+            except Exception:
+                pass
 
         # 整理結果
         results = []
