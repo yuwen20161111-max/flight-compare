@@ -234,8 +234,9 @@ def build_booking_urls(origin, destination, depart_date, return_date=None, adult
         f"https://www.google.com/travel/flights?q=Flights+to+{arr}+from+{dep}+on+{depart_date}"
     )
     trip_com_url = (
-        f"https://www.trip.com/flights/{dep.lower()}-to-{arr.lower()}/tickets-{dep.lower()}-{arr.lower()}"
+        f"https://tw.trip.com/flights/{dep.lower()}-to-{arr.lower()}/tickets-{dep.lower()}-{arr.lower()}"
         f"?dcity={dep}&acity={arr}&ddate={depart_date}"
+        f"&locale=zh-TW&curr=TWD"
         f"&Allianceid=8060886&SID=304954294"
     )
     # Agoda 用 flights.agoda.com + 路徑參數格式
