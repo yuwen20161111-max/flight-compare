@@ -397,31 +397,43 @@ def api_search():
         return jsonify({"error": "請填寫出發地、目的地和出發日期"}), 400
 
     try:
-        # 方法 1：用 latest prices 取得最新票價
-        raw = search_latest_prices(
-            origin, destination,
-            direct=nonstop,
-            one_way=(return_date is None),
-            limit=30,
-        )
+        # 城市代碼轉換（Travelpayouts 用城市代碼）
+        origin_city = get_city_code(origin)
+        dest_city = get_city_code(destination)
 
-        if raw.get("error"):
-            return jsonify({"error": f"API 錯誤：{raw['error']}"}), 500
+        tickets = []
 
-        tickets = raw.get("data", [])
-
-        # 方法 2：如果 latest 沒結果，嘗試 cheap tickets
-        if not tickets:
-            raw2 = search_cheap_tickets(
-                origin, destination,
-                depart_date=depart_date[:7],  # YYYY-MM
-                return_date=return_date[:7] if return_date else None,
+        # 方法 1：用 latest prices（同時試機場碼和城市碼）
+        for orig, dest in [(origin, destination), (origin_city, dest_city), (origin, dest_city)]:
+            if tickets:
+                break
+            raw = search_latest_prices(
+                orig, dest,
                 direct=nonstop,
+                one_way=(return_date is None),
+                limit=30,
             )
-            if "data" in raw2 and destination in raw2["data"]:
-                dest_data = raw2["data"][destination]
-                for key, ticket in dest_data.items():
-                    tickets.append(ticket)
+            if raw.get("error"):
+                continue
+            tickets = raw.get("data", [])
+
+        # 方法 2：用 cheap tickets（同時試機場碼和城市碼）
+        if not tickets:
+            for orig, dest in [(origin, destination), (origin_city, dest_city), (origin, dest_city)]:
+                if tickets:
+                    break
+                raw2 = search_cheap_tickets(
+                    orig, dest,
+                    depart_date=depart_date[:7],
+                    return_date=return_date[:7] if return_date else None,
+                    direct=nonstop,
+                )
+                if raw2.get("data"):
+                    # cheap tickets 的 data 結構是 { "城市碼": { "0": {...}, "1": {...} } }
+                    for dest_key, dest_data in raw2["data"].items():
+                        if isinstance(dest_data, dict):
+                            for key, ticket in dest_data.items():
+                                tickets.append(ticket)
 
         # 整理結果
         results = []
