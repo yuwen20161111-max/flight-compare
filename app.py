@@ -108,7 +108,7 @@ def search_flights(origin, destination, depart_date, return_date=None,
     return resp.json()
 
 
-def parse_serpapi_results(raw, origin, destination, depart_date):
+def parse_serpapi_results(raw, origin, destination, depart_date, return_date=None, adults=1):
     """將 SerpApi 回傳的 Google Flights 資料整理為前端格式"""
     results = []
 
@@ -139,8 +139,10 @@ def parse_serpapi_results(raw, origin, destination, depart_date):
         f"&Allianceid=8060886&SID=304954294"
     )
     agoda_url = (
-        f"https://www.agoda.com/flights/results?origin={dep}&destination={arr}"
-        f"&departDate={depart_date}&adults=1&locale=zh-tw&curr=TWD"
+        f"https://www.agoda.com/zh-tw/flights/results"
+        f"?cid=-1&departureFrom={dep}&departureTo={arr}"
+        f"&departDate={depart_date}&returnDate={return_date or ''}"
+        f"&adults={adults}&locale=zh-tw&curr=TWD"
     )
 
     # 解析 best_flights（推薦航班）和 other_flights（其他航班）
@@ -334,7 +336,7 @@ def api_search():
         if "error" in raw:
             return jsonify({"error": f"API 錯誤：{raw['error']}"}), 500
 
-        results = parse_serpapi_results(raw, origin, destination, depart_date)
+        results = parse_serpapi_results(raw, origin, destination, depart_date, return_date=return_date, adults=adults)
         return jsonify({"results": results, "count": len(results)})
     except requests.exceptions.HTTPError as e:
         error_detail = str(e)
@@ -535,7 +537,7 @@ def api_explore():
             # 訂票連結
             google_url = f"https://www.google.com/travel/flights?q=Flights+to+{dest_code}+from+{origin}"
             trip_url = f"https://www.trip.com/flights/{origin.lower()}-to-{dest_code.lower()}/tickets-{origin.lower()}-{dest_code.lower()}?Allianceid=8060886&SID=304954294"
-            agoda_url = f"https://www.agoda.com/flights/results?origin={origin}&destination={dest_code}&locale=zh-tw&curr=TWD"
+            agoda_url = f"https://www.agoda.com/zh-tw/flights/results?cid=-1&departureFrom={origin}&departureTo={dest_code}&locale=zh-tw&curr=TWD"
 
             results.append({
                 "destination_code": dest_code,
