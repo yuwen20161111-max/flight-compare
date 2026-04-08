@@ -646,6 +646,9 @@
             const tomorrow = new Date();
             tomorrow.setDate(tomorrow.getDate() + 7);
             document.getElementById('departDate').value = formatDate(tomorrow);
+            const returnDefault = new Date(tomorrow);
+            returnDefault.setDate(returnDefault.getDate() + 7);
+            document.getElementById('returnDate').value = formatDate(returnDefault);
 
             // Check config
             fetch('/api/config')
