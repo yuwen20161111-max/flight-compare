@@ -1,0 +1,1160 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>機票比價系統</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Microsoft JhengHei', 'Segoe UI', sans-serif;
+            background: linear-gradient(160deg, #f5ebe0, #edede9, #e3d5ca);
+            min-height: 100vh;
+            color: #5c4f43;
+        }
+
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* ── Header ── */
+        header {
+            text-align: center;
+            padding: 30px 0 10px;
+        }
+        header h1 {
+            font-size: 2rem;
+            color: #8b7355;
+            margin-bottom: 6px;
+            letter-spacing: 2px;
+        }
+        header p { color: #a89585; font-size: 0.95rem; }
+
+        /* ── Config Banner ── */
+        .config-banner {
+            background: #faf3eb;
+            border: 1px solid #d4b896;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+            display: none;
+        }
+        .config-banner.show { display: block; }
+        .config-banner h3 { color: #9e7c5a; margin-bottom: 10px; }
+        .config-banner p { color: #7a6b5d; font-size: 0.9rem; margin-bottom: 12px; line-height: 1.6; }
+        .config-banner a { color: #a0785a; }
+        .config-banner .config-inputs { display: flex; flex-direction: column; gap: 8px; }
+        .config-banner input {
+            padding: 10px 14px; border-radius: 8px; border: 1px solid #cbb89e;
+            background: #fff; color: #5c4f43; font-size: 0.9rem;
+        }
+        .config-banner button {
+            align-self: flex-start; padding: 10px 24px; border: none;
+            background: #b8977a; color: #fff; border-radius: 8px; cursor: pointer;
+            font-weight: bold; font-size: 0.9rem; margin-top: 5px;
+        }
+        .config-banner button:hover { background: #a0835e; }
+
+        /* ── Search Card ── */
+        .search-card {
+            background: rgba(255,255,255,0.65);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 28px;
+            margin: 20px 0;
+            border: 1px solid #ddd0c3;
+            box-shadow: 0 4px 20px rgba(139,115,85,0.08);
+        }
+
+        .search-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .field { display: flex; flex-direction: column; position: relative; }
+        .field label {
+            font-size: 0.85rem; color: #8b7d6e; margin-bottom: 5px; font-weight: 500;
+        }
+        .field input, .field select {
+            padding: 12px 14px;
+            border-radius: 10px;
+            border: 1px solid #d4c4b0;
+            background: #faf6f1;
+            color: #5c4f43;
+            font-size: 1rem;
+            outline: none;
+            transition: border 0.2s;
+        }
+        .field input:focus, .field select:focus {
+            border-color: #a0785a;
+        }
+        .field input::placeholder { color: #bfb0a0; }
+
+        /* Autocomplete dropdown */
+        .autocomplete-list {
+            position: absolute; top: 100%; left: 0; right: 0;
+            background: #faf6f1; border: 1px solid #d4c4b0;
+            border-radius: 8px; max-height: 220px; overflow-y: auto;
+            z-index: 100; display: none;
+            box-shadow: 0 8px 24px rgba(92,79,67,0.12);
+        }
+        .autocomplete-list.show { display: block; }
+        .autocomplete-item {
+            padding: 10px 14px; cursor: pointer; font-size: 0.9rem;
+            border-bottom: 1px solid #ede4da;
+        }
+        .autocomplete-item:hover { background: #f0e6da; }
+        .autocomplete-item .code { font-weight: bold; color: #9e7c5a; }
+        .autocomplete-item .detail { color: #a89585; font-size: 0.8rem; }
+
+        .options-row {
+            display: flex; gap: 20px; align-items: center; margin-bottom: 16px;
+        }
+        .options-row label { display: flex; align-items: center; gap: 6px; color: #8b7d6e; font-size: 0.9rem; }
+        .options-row input[type="checkbox"] { accent-color: #a0785a; width: 16px; height: 16px; }
+
+        .btn-search {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 12px;
+            background: linear-gradient(90deg, #c4a882, #a0785a);
+            color: #fff;
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: opacity 0.2s, transform 0.1s;
+        }
+        .btn-search:hover { opacity: 0.9; }
+        .btn-search:active { transform: scale(0.98); }
+        .btn-search:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* ── Results ── */
+        .results-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin: 25px 0 15px; flex-wrap: wrap; gap: 10px;
+        }
+        .results-header h2 { font-size: 1.2rem; color: #7a6b5d; }
+        .results-header .count { color: #9e7c5a; font-size: 0.9rem; }
+
+        .sort-btns { display: flex; gap: 8px; }
+        .sort-btns button {
+            padding: 6px 14px; border-radius: 8px; border: 1px solid #d4c4b0;
+            background: transparent; color: #8b7d6e; cursor: pointer; font-size: 0.8rem;
+        }
+        .sort-btns button.active { background: #e8dace; border-color: #a0785a; color: #6b5643; }
+
+        .flight-card {
+            background: rgba(255,255,255,0.7);
+            border: 1px solid #e0d5c8;
+            border-radius: 14px;
+            padding: 20px;
+            margin-bottom: 14px;
+            transition: border 0.2s, transform 0.1s;
+        }
+        .flight-card:hover {
+            border-color: #c4a882;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 16px rgba(139,115,85,0.1);
+        }
+        .flight-card.cheapest {
+            border-color: #a8c5a0;
+            background: rgba(168, 197, 160, 0.12);
+        }
+        .flight-card.cheapest::before {
+            content: "最便宜";
+            display: inline-block;
+            background: #a8c5a0;
+            color: #3d5238;
+            font-size: 0.75rem;
+            font-weight: bold;
+            padding: 3px 10px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+        }
+
+        .flight-main {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .flight-info { flex: 1; min-width: 200px; }
+        .flight-route {
+            display: flex; align-items: center; gap: 12px;
+            font-size: 1.05rem; font-weight: bold; margin-bottom: 6px;
+            color: #5c4f43;
+        }
+        .flight-route .arrow { color: #a0785a; font-size: 1.2rem; }
+        .flight-meta { color: #a89585; font-size: 0.85rem; display: flex; flex-wrap: wrap; gap: 12px; }
+        .flight-meta span { display: flex; align-items: center; gap: 4px; }
+
+        .itinerary-label { color: #9e7c5a; font-size: 0.8rem; font-weight: bold; margin: 10px 0 4px; }
+
+        .flight-price-section { text-align: right; min-width: 160px; }
+        .flight-price {
+            font-size: 1.6rem; font-weight: bold;
+            color: #8b6b4a;
+        }
+        .flight-price-unit { color: #a89585; font-size: 0.8rem; }
+        .booking-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; justify-content: flex-end; }
+        .btn-book {
+            display: inline-block;
+            padding: 8px 16px; border-radius: 8px; border: none;
+            color: #fff; font-weight: bold; font-size: 0.8rem;
+            cursor: pointer; text-decoration: none;
+            transition: opacity 0.2s;
+        }
+        .btn-book:hover { opacity: 0.85; }
+        .btn-book.google { background: linear-gradient(90deg, #b8977a, #a0785a); }
+        .btn-book.trip { background: linear-gradient(90deg, #7a8e99, #5d7280); }
+        .btn-book.agoda { background: linear-gradient(90deg, #9b8ea8, #7d6e8a); }
+        .btn-book.airline-ci { background: linear-gradient(90deg, #c4929a, #a87078); }
+        .btn-book.airline-br { background: linear-gradient(90deg, #8aaa7e, #6b8e60); }
+        .btn-book.airline-jx { background: linear-gradient(90deg, #8890aa, #6a7290); }
+        .btn-book.airline-it { background: linear-gradient(90deg, #cca07a, #b88a60); }
+        .btn-book.airline-b7 { background: linear-gradient(90deg, #7aaa9a, #5e8e80); }
+        .btn-book.airline-ae { background: linear-gradient(90deg, #c48a8a, #a86868); }
+
+        /* ── Loading / Error ── */
+        .loading {
+            text-align: center; padding: 40px; display: none;
+        }
+        .loading.show { display: block; }
+        .spinner {
+            width: 40px; height: 40px; margin: 0 auto 15px;
+            border: 3px solid #e0d5c8;
+            border-top-color: #a0785a;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .error-msg {
+            background: rgba(196, 146, 154, 0.15);
+            border: 1px solid #c4929a;
+            border-radius: 10px;
+            padding: 15px 20px;
+            margin: 15px 0;
+            color: #8e5660;
+            display: none;
+        }
+        .error-msg.show { display: block; }
+
+        .no-results {
+            text-align: center; padding: 40px; color: #a89585;
+            display: none;
+        }
+        .no-results.show { display: block; }
+
+        /* ── Segments detail ── */
+        .segments-detail {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid #ede4da;
+        }
+        .segment-row {
+            display: flex; align-items: center; gap: 10px;
+            padding: 4px 0; font-size: 0.85rem; color: #a89585;
+        }
+        .segment-row .seg-flight { color: #9e7c5a; font-weight: 500; min-width: 80px; }
+        .segment-row .seg-time { color: #6b5e52; }
+        .segment-row .seg-arrow { color: #c4b8a8; }
+
+        /* ── Baggage Info ── */
+        .baggage-row {
+            display: flex; flex-wrap: wrap; gap: 8px;
+            margin-top: 8px; padding-top: 8px;
+            border-top: 1px solid #ede4da;
+        }
+        .baggage-tag {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 4px 10px; border-radius: 6px;
+            font-size: 0.75rem; font-weight: 500;
+        }
+        .baggage-tag.free {
+            background: rgba(168, 197, 160, 0.2); color: #5a7a50; border: 1px solid #a8c5a0;
+        }
+        .baggage-tag.paid {
+            background: rgba(196, 146, 154, 0.15); color: #8e5660; border: 1px solid #c4929a;
+        }
+        .baggage-tag.info {
+            background: #f0e6da; color: #8b7d6e; border: 1px solid #d4c4b0;
+        }
+
+        /* ── Mode Tabs ── */
+        .mode-tabs {
+            display: flex; gap: 0; margin: 20px 0 0; border-bottom: 2px solid #ddd0c3;
+        }
+        .mode-tab {
+            padding: 12px 28px; border: none; background: transparent;
+            color: #a89585; font-size: 1rem; cursor: pointer;
+            border-bottom: 3px solid transparent; transition: all 0.2s;
+            font-weight: 500;
+        }
+        .mode-tab:hover { color: #7a6b5d; }
+        .mode-tab.active {
+            color: #8b6b4a;
+            border-bottom-color: #a0785a;
+        }
+
+        /* ── Smart Search ── */
+        .smart-hint {
+            background: #f5ebe0;
+            border: 1px solid #d4c4b0;
+            border-radius: 10px;
+            padding: 14px 18px;
+            margin-bottom: 18px;
+            color: #7a6b5d;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+        .smart-note {
+            margin-top: 10px; color: #b5a898; font-size: 0.8rem; text-align: center;
+        }
+        .trip-days-options {
+            display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px;
+        }
+        .chip {
+            display: flex; align-items: center; gap: 5px;
+            padding: 8px 14px; border-radius: 20px;
+            background: #faf6f1; border: 1px solid #d4c4b0;
+            color: #8b7d6e; font-size: 0.9rem; cursor: pointer; transition: all 0.2s;
+        }
+        .chip:hover { border-color: #a0785a; }
+        .chip:has(input:checked) {
+            background: #e8dace; border-color: #a0785a; color: #6b5643;
+        }
+        .chip input { accent-color: #a0785a; width: 14px; height: 14px; }
+        .smart-summary {
+            background: rgba(168, 197, 160, 0.15);
+            border: 1px solid #a8c5a0;
+            border-radius: 14px;
+            padding: 20px;
+            margin: 15px 0;
+        }
+        .smart-summary h3 { color: #6b8e60; margin-bottom: 10px; font-size: 1.1rem; }
+        .smart-summary .summary-stats {
+            display: flex; flex-wrap: wrap; gap: 20px; color: #7a6b5d; font-size: 0.9rem;
+        }
+        .smart-summary .stat-item { display: flex; flex-direction: column; }
+        .smart-summary .stat-value {
+            font-size: 1.4rem; font-weight: bold; color: #6b8e60;
+        }
+        .smart-summary .stat-label { font-size: 0.8rem; color: #a89585; }
+        .smart-summary .best-date {
+            margin-top: 12px; padding-top: 12px;
+            border-top: 1px solid #d5ddd2;
+            color: #5c4f43; font-size: 0.95rem;
+        }
+
+        /* ── Explore Cards ── */
+        .explore-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 14px; margin-top: 15px;
+        }
+        .dest-card {
+            background: rgba(255,255,255,0.7);
+            border: 1px solid #e0d5c8;
+            border-radius: 14px;
+            padding: 18px;
+            transition: border 0.2s, transform 0.1s;
+        }
+        .dest-card:hover {
+            border-color: #c4a882;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(139,115,85,0.1);
+        }
+        .dest-card.in-budget {
+            border-color: #a8c5a0;
+            background: rgba(168, 197, 160, 0.1);
+        }
+        .dest-card.over-budget {
+            opacity: 0.55;
+        }
+        .dest-card .dest-header {
+            display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;
+        }
+        .dest-card .dest-name {
+            font-size: 1.15rem; font-weight: bold; color: #5c4f43;
+        }
+        .dest-card .dest-region {
+            font-size: 0.75rem; color: #a89585;
+            background: #f0e6da; padding: 2px 10px; border-radius: 10px;
+        }
+        .dest-card .dest-price {
+            font-size: 1.4rem; font-weight: bold; color: #8b6b4a; margin: 6px 0;
+        }
+        .dest-card .dest-price.good { color: #6b8e60; }
+        .dest-card .dest-meta {
+            font-size: 0.8rem; color: #a89585; margin-bottom: 10px;
+        }
+        .dest-card .dest-badge {
+            display: inline-block; padding: 3px 10px; border-radius: 6px;
+            font-size: 0.7rem; font-weight: bold; margin-bottom: 8px;
+        }
+        .dest-card .dest-badge.ok { background: #a8c5a0; color: #3d5238; }
+        .dest-card .dest-badge.no { background: #e0d5c8; color: #8b7d6e; }
+
+        /* ── Responsive ── */
+        @media (max-width: 640px) {
+            .search-row { grid-template-columns: 1fr; }
+            .flight-main { flex-direction: column; align-items: flex-start; }
+            .flight-price-section { text-align: left; }
+        }
+
+        /* ── Footer ── */
+        footer {
+            text-align: center; padding: 30px 0 20px;
+            color: #b5a898; font-size: 0.8rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>機票比價系統</h1>
+            <p>搜尋全球航班，找到最便宜的機票</p>
+        </header>
+
+        <!-- API Config Banner -->
+        <div class="config-banner" id="configBanner">
+            <h3>首次使用 - 設定 API 金鑰（只需一次！）</h3>
+            <p>
+                本系統使用 SerpApi 搜尋 Google Flights 航班資料。<br>
+                1. 前往 <a href="https://serpapi.com/users/sign_up" target="_blank" style="color:#a0785a">serpapi.com/users/sign_up</a> 免費註冊<br>
+                2. 註冊後到 <a href="https://serpapi.com/manage-api-key" target="_blank" style="color:#a0785a">serpapi.com/manage-api-key</a> 複製你的 API Key<br>
+                3. 貼到下方，按「儲存」就好了（每月免費 100 次搜尋）
+            </p>
+            <div class="config-inputs">
+                <input type="text" id="cfgApiKey" placeholder="SerpApi API Key">
+                <button onclick="saveConfig()">儲存 API 金鑰</button>
+            </div>
+        </div>
+
+        <!-- Mode Tabs -->
+        <div class="mode-tabs">
+            <button class="mode-tab active" onclick="switchMode('normal', this)">一般搜尋</button>
+            <button class="mode-tab" onclick="switchMode('smart', this)">智慧比價</button>
+            <button class="mode-tab" onclick="switchMode('explore', this)">預算探索</button>
+        </div>
+
+        <!-- Normal Search Form -->
+        <div class="search-card" id="normalSearch">
+            <div class="search-row">
+                <div class="field">
+                    <label>出發地</label>
+                    <input type="text" id="origin" placeholder="輸入城市或機場代碼，如 TPE" autocomplete="off">
+                    <div class="autocomplete-list" id="originList"></div>
+                </div>
+                <div class="field">
+                    <label>目的地</label>
+                    <input type="text" id="destination" placeholder="輸入城市或機場代碼，如 NRT" autocomplete="off">
+                    <div class="autocomplete-list" id="destinationList"></div>
+                </div>
+            </div>
+            <div class="search-row">
+                <div class="field">
+                    <label>出發日期</label>
+                    <input type="date" id="departDate">
+                </div>
+                <div class="field">
+                    <label>回程日期（選填，不填為單程）</label>
+                    <input type="date" id="returnDate">
+                </div>
+            </div>
+            <div class="search-row">
+                <div class="field">
+                    <label>人數</label>
+                    <select id="adults">
+                        <option value="1">1 位</option>
+                        <option value="2">2 位</option>
+                        <option value="3">3 位</option>
+                        <option value="4">4 位</option>
+                    </select>
+                </div>
+                <div class="field" style="justify-content: flex-end;">
+                    <div class="options-row" style="margin:0;">
+                        <label>
+                            <input type="checkbox" id="nonstop">
+                            僅顯示直飛
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <button class="btn-search" id="btnSearch" onclick="searchFlights()">搜尋航班</button>
+        </div>
+
+        <!-- Smart Search Form -->
+        <div class="search-card" id="smartSearch" style="display:none;">
+            <div class="smart-hint">
+                只要告訴我「去哪裡」和「預算多少」，我會自動掃未來 2 個月的航班，幫你找到最便宜的來回機票！
+            </div>
+            <div class="search-row">
+                <div class="field">
+                    <label>從哪裡出發</label>
+                    <input type="text" id="smartOrigin" placeholder="如 TPE（桃園）" autocomplete="off">
+                    <div class="autocomplete-list" id="smartOriginList"></div>
+                </div>
+                <div class="field">
+                    <label>要去哪裡</label>
+                    <input type="text" id="smartDest" placeholder="如 NRT（東京）" autocomplete="off">
+                    <div class="autocomplete-list" id="smartDestList"></div>
+                </div>
+            </div>
+            <div class="search-row">
+                <div class="field">
+                    <label>你的預算（TWD / 每人來回）</label>
+                    <input type="number" id="smartBudget" placeholder="如 15000" value="15000">
+                </div>
+                <div class="field">
+                    <label>想玩幾天（可複選）</label>
+                    <div class="trip-days-options">
+                        <label class="chip"><input type="checkbox" value="3" checked> 3 天</label>
+                        <label class="chip"><input type="checkbox" value="5" checked> 5 天</label>
+                        <label class="chip"><input type="checkbox" value="7" checked> 7 天</label>
+                        <label class="chip"><input type="checkbox" value="10"> 10 天</label>
+                        <label class="chip"><input type="checkbox" value="14"> 14 天</label>
+                    </div>
+                </div>
+            </div>
+            <div class="search-row">
+                <div class="field">
+                    <label>搜尋範圍</label>
+                    <select id="smartMonths">
+                        <option value="2">未來 2 個月</option>
+                        <option value="3">未來 3 個月</option>
+                        <option value="6">未來半年</option>
+                        <option value="12">未來一整年</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>人數</label>
+                    <select id="smartAdults">
+                        <option value="1">1 位</option>
+                        <option value="2">2 位</option>
+                        <option value="3">3 位</option>
+                        <option value="4">4 位</option>
+                    </select>
+                </div>
+            </div>
+            <div class="options-row" style="margin-bottom: 16px;">
+                <label>
+                    <input type="checkbox" id="smartNonstop">
+                    僅顯示直飛
+                </label>
+            </div>
+            <button class="btn-search" id="btnSmartSearch" onclick="smartSearch()">幫我找最便宜的來回機票</button>
+            <div class="smart-note">
+                * 系統會自動在你選的範圍內取樣搜尋，範圍越大需要越久（約 30~90 秒）
+            </div>
+        </div>
+
+        <!-- Explore Form -->
+        <div class="search-card" id="exploreSearch" style="display:none;">
+            <div class="smart-hint">
+                告訴我你的預算，我幫你看看這些錢能飛去哪裡！會搜尋 10 個精選目的地（亞洲、美洲、歐洲）。
+            </div>
+            <div class="search-row">
+                <div class="field">
+                    <label>從哪裡出發</label>
+                    <input type="text" id="exploreOrigin" placeholder="如 TPE（桃園）" value="TPE" autocomplete="off">
+                    <div class="autocomplete-list" id="exploreOriginList"></div>
+                </div>
+                <div class="field">
+                    <label>你的預算（TWD / 每人單程）</label>
+                    <input type="number" id="exploreBudget" placeholder="如 5000" value="5000">
+                </div>
+            </div>
+            <div class="search-row">
+                <div class="field">
+                    <label>人數</label>
+                    <select id="exploreAdults">
+                        <option value="1">1 位</option>
+                        <option value="2">2 位</option>
+                        <option value="3">3 位</option>
+                        <option value="4">4 位</option>
+                    </select>
+                </div>
+                <div class="field"></div>
+            </div>
+            <button class="btn-search" id="btnExplore" onclick="exploreSearch()">看看我能去哪裡</button>
+            <div class="smart-note">
+                * 搜尋 10 個目的地，約需 10~20 秒，每次消耗約 10 次 API 額度
+            </div>
+        </div>
+
+        <!-- Loading -->
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p id="loadingText">正在搜尋最便宜的航班...</p>
+        </div>
+
+        <!-- Smart Summary -->
+        <div class="smart-summary" id="smartSummary" style="display:none;"></div>
+
+        <!-- Error -->
+        <div class="error-msg" id="errorMsg"></div>
+
+        <!-- No Results -->
+        <div class="no-results" id="noResults">
+            <p style="font-size:2rem; margin-bottom:10px;">:(</p>
+            <p>沒有找到符合條件的航班，請試試其他日期或目的地</p>
+        </div>
+
+        <!-- Results -->
+        <div id="resultsSection" style="display:none;">
+            <div class="results-header">
+                <div>
+                    <h2>搜尋結果</h2>
+                    <span class="count" id="resultCount"></span>
+                </div>
+                <div class="sort-btns">
+                    <button class="active" onclick="sortResults('price', this)">價格低 &rarr; 高</button>
+                    <button onclick="sortResults('duration', this)">時間短 &rarr; 長</button>
+                    <button onclick="sortResults('stops', this)">轉機少 &rarr; 多</button>
+                </div>
+            </div>
+            <div id="resultsList"></div>
+        </div>
+
+        <!-- Explore Results -->
+        <div id="exploreSection" style="display:none;">
+            <div id="exploreSummary" class="smart-summary"></div>
+            <div id="exploreList"></div>
+        </div>
+
+        <footer>
+            機票比價系統 &mdash; 價格資料來自 Google Flights，實際價格以航空公司為準
+        </footer>
+    </div>
+
+    <script>
+        let currentResults = [];
+        let debounceTimer = null;
+
+        // ── Init ──
+        window.addEventListener('DOMContentLoaded', () => {
+            // Set default date to tomorrow
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 7);
+            document.getElementById('departDate').value = formatDate(tomorrow);
+
+            // Check config
+            fetch('/api/config')
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.configured) {
+                        document.getElementById('configBanner').classList.add('show');
+                    }
+                });
+
+            // Setup autocomplete (normal + smart)
+            setupAutocomplete('origin', 'originList');
+            setupAutocomplete('destination', 'destinationList');
+            setupAutocomplete('smartOrigin', 'smartOriginList');
+            setupAutocomplete('smartDest', 'smartDestList');
+            setupAutocomplete('exploreOrigin', 'exploreOriginList');
+
+        });
+
+        function formatDate(d) {
+            return d.toISOString().split('T')[0];
+        }
+
+        // ── Config ──
+        function saveConfig() {
+            const key = document.getElementById('cfgApiKey').value.trim();
+            if (!key) { alert('請填寫 API Key'); return; }
+
+            fetch('/api/config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ api_key: key })
+            })
+            .then(r => r.json())
+            .then(() => {
+                document.getElementById('configBanner').classList.remove('show');
+                alert('API 金鑰已儲存！可以開始搜尋了');
+            });
+        }
+
+        // ── Autocomplete ──
+        function setupAutocomplete(inputId, listId) {
+            const input = document.getElementById(inputId);
+            const list = document.getElementById(listId);
+
+            input.addEventListener('input', () => {
+                clearTimeout(debounceTimer);
+                const val = input.value.trim();
+                if (val.length < 2) { list.classList.remove('show'); return; }
+
+                debounceTimer = setTimeout(() => {
+                    fetch(`/api/airports?q=${encodeURIComponent(val)}`)
+                        .then(r => r.json())
+                        .then(airports => {
+                            list.innerHTML = '';
+                            if (airports.length === 0) { list.classList.remove('show'); return; }
+                            airports.forEach(a => {
+                                const item = document.createElement('div');
+                                item.className = 'autocomplete-item';
+                                item.innerHTML = `<span class="code">${a.code}</span> ${a.name} <span class="detail">${a.city}, ${a.country}</span>`;
+                                item.addEventListener('click', () => {
+                                    input.value = a.code;
+                                    list.classList.remove('show');
+                                });
+                                list.appendChild(item);
+                            });
+                            list.classList.add('show');
+                        });
+                }, 300);
+            });
+
+            // Close on click outside
+            document.addEventListener('click', (e) => {
+                if (!input.contains(e.target) && !list.contains(e.target)) {
+                    list.classList.remove('show');
+                }
+            });
+        }
+
+        // ── Search ──
+        function searchFlights() {
+            const origin = document.getElementById('origin').value.trim();
+            const destination = document.getElementById('destination').value.trim();
+            const departDate = document.getElementById('departDate').value;
+            const returnDate = document.getElementById('returnDate').value;
+            const adults = document.getElementById('adults').value;
+            const nonstop = document.getElementById('nonstop').checked;
+
+            if (!origin || !destination || !departDate) {
+                showError('請填寫出發地、目的地和出發日期');
+                return;
+            }
+
+            hideAll();
+            document.getElementById('loading').classList.add('show');
+            document.getElementById('btnSearch').disabled = true;
+
+            fetch('/api/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    origin, destination, depart_date: departDate,
+                    return_date: returnDate, adults, nonstop
+                })
+            })
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('loading').classList.remove('show');
+                document.getElementById('btnSearch').disabled = false;
+
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+
+                currentResults = data.results;
+                if (currentResults.length === 0) {
+                    document.getElementById('noResults').classList.add('show');
+                } else {
+                    renderResults();
+                }
+            })
+            .catch(err => {
+                document.getElementById('loading').classList.remove('show');
+                document.getElementById('btnSearch').disabled = false;
+                showError('網路錯誤，請稍後再試');
+            });
+        }
+
+        function hideAll() {
+            document.getElementById('loading').classList.remove('show');
+            document.getElementById('errorMsg').classList.remove('show');
+            document.getElementById('noResults').classList.remove('show');
+            document.getElementById('resultsSection').style.display = 'none';
+        }
+
+        function showError(msg) {
+            hideAll();
+            const el = document.getElementById('errorMsg');
+            el.textContent = msg;
+            el.classList.add('show');
+        }
+
+        // ── Render ──
+        function renderResults() {
+            const section = document.getElementById('resultsSection');
+            const list = document.getElementById('resultsList');
+            const count = document.getElementById('resultCount');
+
+            section.style.display = 'block';
+            count.textContent = `找到 ${currentResults.length} 個航班`;
+
+            list.innerHTML = currentResults.map((r, i) => {
+                const isCheapest = i === 0;
+                let html = `<div class="flight-card ${isCheapest ? 'cheapest' : ''}">`;
+
+                r.itineraries.forEach((itin, idx) => {
+                    const firstSeg = itin.segments[0];
+                    const lastSeg = itin.segments[itin.segments.length - 1];
+                    const label = r.itineraries.length > 1
+                        ? (idx === 0 ? '去程' : '回程')
+                        : '';
+
+                    if (label) html += `<div class="itinerary-label">${label}</div>`;
+
+                    html += `
+                        <div class="flight-main">
+                            <div class="flight-info">
+                                <div class="flight-route">
+                                    <span>${firstSeg.departure_airport} ${formatTime(firstSeg.departure_time)}</span>
+                                    <span class="arrow">&rarr;</span>
+                                    <span>${lastSeg.arrival_airport} ${formatTime(lastSeg.arrival_time)}</span>
+                                </div>
+                                <div class="flight-meta">
+                                    <span>${firstSeg.carrier_name}</span>
+                                    <span>${itin.duration}</span>
+                                    <span>${itin.stops === 0 ? '直飛' : `轉機 ${itin.stops} 次`}</span>
+                                    ${r.seats_remaining ? `<span style="color:#b08968">剩 ${r.seats_remaining} 位</span>` : ''}
+                                    ${r.combo_label ? `<span style="color:#6b8e60; font-weight:bold">${r.combo_label}</span>` : (r.search_date ? `<span style="color:#6b8e60; font-weight:bold">出發日 ${r.search_date}</span>` : '')}
+                                </div>
+                                <div class="segments-detail">
+                                    ${itin.segments.map(s => `
+                                        <div class="segment-row">
+                                            <span class="seg-flight">${s.flight_number}</span>
+                                            <span class="seg-time">${formatTime(s.departure_time)}</span>
+                                            <span class="seg-arrow">${s.departure_airport} &rarr; ${s.arrival_airport}</span>
+                                            <span class="seg-time">${formatTime(s.arrival_time)}</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                                ${renderBaggage(r)}
+                            </div>
+                            ${idx === 0 ? `
+                            <div class="flight-price-section">
+                                <div class="flight-price">NT$ ${Math.round(r.price).toLocaleString()}</div>
+                                <div class="flight-price-unit">/ 每人</div>
+                                <div class="booking-btns">
+                                    ${(r.airline_links || []).map(a => `
+                                        <a href="${a.url}" target="_blank" class="btn-book airline-${a.carrier_code.toLowerCase()}">${a.name}官網</a>
+                                    `).join('')}
+                                    <a href="${r.trip_com_url}" target="_blank" class="btn-book trip">Trip.com</a>
+                                    <a href="${r.agoda_url}" target="_blank" class="btn-book agoda">Agoda</a>
+                                    <a href="${r.booking_url}" target="_blank" class="btn-book google">Google Flights</a>
+                                </div>
+                            </div>
+                            ` : ''}
+                        </div>
+                    `;
+                });
+
+                html += '</div>';
+                return html;
+            }).join('');
+        }
+
+        function renderBaggage(r) {
+            const b = r.baggage || {};
+            const infoList = r.baggage_info || [];
+            let tags = [];
+
+            // 結構化行李資訊
+            if (b.carry_on) {
+                tags.push(`<span class="baggage-tag free">${b.carry_on}</span>`);
+            }
+            if (b.checked_bag) {
+                const isFree = b.checked_bag.toLowerCase().includes('free') || b.checked_bag.toLowerCase().includes('included');
+                tags.push(`<span class="baggage-tag ${isFree ? 'free' : 'info'}">${b.checked_bag}</span>`);
+            }
+            if (b.checked_bag_fee) {
+                tags.push(`<span class="baggage-tag paid">${b.checked_bag_fee}</span>`);
+            }
+            if (!b.checked_bag && !b.checked_bag_fee) {
+                // 從 extensions 找行李相關資訊
+                for (const info of infoList) {
+                    const lower = info.toLowerCase();
+                    if (lower.includes('bag') || lower.includes('carry') || lower.includes('luggage') || lower.includes('kg') || lower.includes('lb') || lower.includes('cabin')) {
+                        const isFree = lower.includes('free') || lower.includes('included');
+                        const isPaid = lower.includes('fee') || lower.includes('charge') || lower.includes('no checked') || lower.includes('purchase');
+                        tags.push(`<span class="baggage-tag ${isFree ? 'free' : isPaid ? 'paid' : 'info'}">${info}</span>`);
+                    }
+                }
+            }
+
+            if (tags.length === 0) {
+                tags.push('<span class="baggage-tag info">行李資訊未提供，請至航空公司確認</span>');
+            }
+
+            return `<div class="baggage-row">${tags.join('')}</div>`;
+        }
+
+        function formatTime(timeStr) {
+            if (!timeStr) return '';
+            // SerpApi 回傳格式可能是 "2026-04-15 14:30" 或 ISO 格式
+            if (timeStr.includes('T') || timeStr.includes(' ')) {
+                const d = new Date(timeStr.replace(' ', 'T'));
+                if (!isNaN(d)) return d.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
+            }
+            return timeStr;
+        }
+
+        // ── Sort ──
+        function sortResults(by, btn) {
+            document.querySelectorAll('.sort-btns button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            if (by === 'price') {
+                currentResults.sort((a, b) => a.price - b.price);
+            } else if (by === 'duration') {
+                currentResults.sort((a, b) => {
+                    const da = a.itineraries[0]?.duration || '';
+                    const db = b.itineraries[0]?.duration || '';
+                    return da.localeCompare(db);
+                });
+            } else if (by === 'stops') {
+                currentResults.sort((a, b) => {
+                    const sa = a.itineraries[0]?.stops || 0;
+                    const sb = b.itineraries[0]?.stops || 0;
+                    return sa - sb;
+                });
+            }
+            renderResults();
+        }
+
+        // ── Mode Switch ──
+        let currentMode = 'normal';
+
+        function switchMode(mode, btn) {
+            currentMode = mode;
+            document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById('normalSearch').style.display = mode === 'normal' ? 'block' : 'none';
+            document.getElementById('smartSearch').style.display = mode === 'smart' ? 'block' : 'none';
+            document.getElementById('exploreSearch').style.display = mode === 'explore' ? 'block' : 'none';
+            document.getElementById('smartSummary').style.display = 'none';
+            document.getElementById('exploreSection').style.display = 'none';
+            hideAll();
+        }
+
+        // ── Smart Search ──
+        function smartSearch() {
+            const origin = document.getElementById('smartOrigin').value.trim();
+            const dest = document.getElementById('smartDest').value.trim();
+            const budget = document.getElementById('smartBudget').value || 999999;
+            const searchMonths = document.getElementById('smartMonths').value;
+            const adults = document.getElementById('smartAdults').value;
+            const nonstop = document.getElementById('smartNonstop').checked;
+
+            // 收集勾選的天數
+            const tripDays = [];
+            document.querySelectorAll('.trip-days-options input:checked').forEach(cb => {
+                tripDays.push(parseInt(cb.value));
+            });
+
+            if (!origin || !dest) {
+                showError('請填寫出發地和目的地');
+                return;
+            }
+            if (tripDays.length === 0) {
+                showError('請至少選一個旅遊天數');
+                return;
+            }
+
+            hideAll();
+            document.getElementById('smartSummary').style.display = 'none';
+            document.getElementById('loading').classList.add('show');
+            const monthsLabel = {'2':'2 個月','3':'3 個月','6':'半年','12':'一整年'}[searchMonths] || searchMonths + ' 個月';
+            document.getElementById('loadingText').textContent = `正在掃描未來${monthsLabel}的航班，幫你找最便宜的，請稍候...`;
+            document.getElementById('btnSmartSearch').disabled = true;
+
+            fetch('/api/smart_search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    origin, destination: dest,
+                    budget, adults, nonstop,
+                    trip_days: tripDays,
+                    search_months: searchMonths
+                })
+            })
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('loading').classList.remove('show');
+                document.getElementById('btnSmartSearch').disabled = false;
+
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+
+                currentResults = data.results;
+
+                // 顯示摘要
+                if (data.summary) {
+                    const s = data.summary;
+                    const summaryEl = document.getElementById('smartSummary');
+                    summaryEl.style.display = 'block';
+
+                    const overBudgetMsg = s.over_budget
+                        ? `<div class="best-date" style="color:#b08968">預算 NT$ ${s.budget.toLocaleString()} 內找不到航班，以下是目前最便宜的選項：</div>`
+                        : '';
+
+                    summaryEl.innerHTML = `
+                        <h3>智慧比價結果</h3>
+                        ${overBudgetMsg}
+                        <div class="summary-stats">
+                            <div class="stat-item">
+                                <span class="stat-value">${s.combos_searched}</span>
+                                <span class="stat-label">個日期組合已搜尋</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-value">${s.total_found}</span>
+                                <span class="stat-label">個航班找到</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-value">${s.in_budget}</span>
+                                <span class="stat-label">個在預算內</span>
+                            </div>
+                            ${s.cheapest_price ? `
+                            <div class="stat-item">
+                                <span class="stat-value">NT$ ${Math.round(s.cheapest_price).toLocaleString()}</span>
+                                <span class="stat-label">最低價</span>
+                            </div>
+                            ` : ''}
+                        </div>
+                        ${s.cheapest_combo && !s.over_budget ? `
+                        <div class="best-date">
+                            最划算的行程：<strong style="color:#6b8e60">${s.cheapest_combo}</strong>
+                        </div>
+                        ` : ''}
+                    `;
+                }
+
+                if (currentResults.length === 0) {
+                    document.getElementById('noResults').classList.add('show');
+                } else {
+                    renderResults();
+                }
+            })
+            .catch(err => {
+                document.getElementById('loading').classList.remove('show');
+                document.getElementById('btnSmartSearch').disabled = false;
+                showError('網路錯誤，請稍後再試');
+            });
+        }
+
+        // ── Explore Search ──
+        function exploreSearch() {
+            const origin = document.getElementById('exploreOrigin').value.trim();
+            const budget = document.getElementById('exploreBudget').value || 999999;
+            const adults = document.getElementById('exploreAdults').value;
+
+            if (!origin) {
+                showError('請填寫出發地');
+                return;
+            }
+
+            hideAll();
+            document.getElementById('exploreSection').style.display = 'none';
+            document.getElementById('loading').classList.add('show');
+            document.getElementById('loadingText').textContent = '正在搜尋 10 個精選目的地，看看你的預算能飛去哪...';
+            document.getElementById('btnExplore').disabled = true;
+
+            fetch('/api/explore', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ origin, budget, adults })
+            })
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('loading').classList.remove('show');
+                document.getElementById('btnExplore').disabled = false;
+
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+
+                const results = data.results;
+                const s = data.summary;
+
+                if (results.length === 0) {
+                    document.getElementById('noResults').classList.add('show');
+                    return;
+                }
+
+                const section = document.getElementById('exploreSection');
+                section.style.display = 'block';
+
+                // Summary
+                const summaryEl = document.getElementById('exploreSummary');
+                summaryEl.innerHTML = `
+                    <h3>預算探索結果</h3>
+                    <div class="summary-stats">
+                        <div class="stat-item">
+                            <span class="stat-value">${s.total_searched}</span>
+                            <span class="stat-label">個目的地已搜尋</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value">${s.in_budget}</span>
+                            <span class="stat-label">個在預算內</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value">NT$ ${s.budget.toLocaleString()}</span>
+                            <span class="stat-label">你的預算</span>
+                        </div>
+                    </div>
+                    ${s.in_budget === 0 ? '<div class="best-date" style="color:#b08968">目前預算內沒有找到航班，以下依價格排列供參考</div>' : ''}
+                `;
+
+                // Destination cards
+                const listEl = document.getElementById('exploreList');
+                listEl.innerHTML = '<div class="explore-grid">' + results.map(r => `
+                    <div class="dest-card ${r.in_budget ? 'in-budget' : 'over-budget'}">
+                        <div class="dest-badge ${r.in_budget ? 'ok' : 'no'}">${r.in_budget ? '預算內' : '超出預算'}</div>
+                        <div class="dest-header">
+                            <span class="dest-name">${r.destination_name}</span>
+                            <span class="dest-region">${r.region}</span>
+                        </div>
+                        <div class="dest-price ${r.in_budget ? 'good' : ''}">NT$ ${Math.round(r.cheapest_price).toLocaleString()}</div>
+                        <div class="dest-meta">
+                            ${r.carrier} &middot; ${r.duration} &middot; ${r.stops === 0 ? '直飛' : '轉機' + r.stops + '次'}
+                        </div>
+                        <div class="booking-btns" style="justify-content: flex-start;">
+                            <a href="${r.trip_url}" target="_blank" class="btn-book trip">Trip.com</a>
+                            <a href="${r.agoda_url}" target="_blank" class="btn-book agoda">Agoda</a>
+                            <a href="${r.google_url}" target="_blank" class="btn-book google">Google</a>
+                        </div>
+                    </div>
+                `).join('') + '</div>';
+            })
+            .catch(err => {
+                document.getElementById('loading').classList.remove('show');
+                document.getElementById('btnExplore').disabled = false;
+                showError('網路錯誤，請稍後再試');
+            });
+        }
+
+        // Enter key to search
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                if (currentMode === 'normal' && !document.getElementById('btnSearch').disabled) {
+                    searchFlights();
+                } else if (currentMode === 'smart' && !document.getElementById('btnSmartSearch').disabled) {
+                    smartSearch();
+                } else if (currentMode === 'explore' && !document.getElementById('btnExplore').disabled) {
+                    exploreSearch();
+                }
+            }
+        });
+    </script>
+</body>
+</html>
