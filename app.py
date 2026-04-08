@@ -405,7 +405,7 @@ def api_search():
             limit=30,
         )
 
-        if "error" in raw:
+        if raw.get("error"):
             return jsonify({"error": f"API 錯誤：{raw['error']}"}), 500
 
         tickets = raw.get("data", [])
