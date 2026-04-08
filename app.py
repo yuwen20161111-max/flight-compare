@@ -266,7 +266,9 @@ def build_booking_urls(origin, destination, depart_date, return_date=None, adult
     arr = destination.upper()
 
     google_flights_url = (
-        f"https://www.google.com/travel/flights?q=Flights+to+{arr}+from+{dep}+on+{depart_date}"
+        f"https://www.google.com/travel/flights?hl=zh-TW&curr=TWD"
+        f"&q=Flights+from+{dep}+to+{arr}+on+{depart_date}"
+        f"{'+return+' + return_date if return_date else ''}"
     )
     trip_com_url = (
         f"https://tw.trip.com/flights/{dep.lower()}-to-{arr.lower()}/tickets-{dep.lower()}-{arr.lower()}"
@@ -276,9 +278,9 @@ def build_booking_urls(origin, destination, depart_date, return_date=None, adult
     )
     # Agoda 用 flights.agoda.com + 路徑參數格式
     if return_date:
-        agoda_url = f"https://flights.agoda.com/flights/{dep}-{arr}/{depart_date}/{return_date}/{adults}adults"
+        agoda_url = f"https://flights.agoda.com/flights/{dep}-{arr}/{depart_date}/{return_date}/{adults}adults?locale=zh-tw&currency=TWD"
     else:
-        agoda_url = f"https://flights.agoda.com/flights/{dep}-{arr}/{depart_date}/{adults}adults"
+        agoda_url = f"https://flights.agoda.com/flights/{dep}-{arr}/{depart_date}/{adults}adults?locale=zh-tw&currency=TWD"
 
     return google_flights_url, trip_com_url, agoda_url
 
@@ -499,6 +501,10 @@ def api_smart_search():
     searched_combos = []
 
     try:
+        # 城市代碼轉換
+        origin_city = get_city_code(origin)
+        dest_city = get_city_code(destination)
+
         # 方法 1：用 month-matrix 取得多個月份的價格
         today = datetime.now()
         for i in range(search_months):
@@ -506,9 +512,11 @@ def api_smart_search():
             month_str = month_date.strftime("%Y-%m-01")
 
             try:
-                raw = search_month_matrix(origin, destination, month_str)
+                raw = search_month_matrix(origin_city, dest_city, month_str)
+                if not raw.get("data"):
+                    raw = search_month_matrix(origin, destination, month_str)
 
-                if "error" in raw:
+                if raw.get("error"):
                     errors.append(f"{month_str}: {raw['error']}")
                     continue
 
@@ -545,7 +553,9 @@ def api_smart_search():
 
         # 方法 2：如果 month-matrix 沒結果，用 latest prices
         if not all_results:
-            raw = search_latest_prices(origin, destination, direct=nonstop, limit=30)
+            raw = search_latest_prices(origin_city, dest_city, direct=nonstop, limit=30)
+            if not raw.get("data"):
+                raw = search_latest_prices(origin, destination, direct=nonstop, limit=30)
             tickets = raw.get("data", [])
             for ticket in tickets:
                 result = format_flight_result(ticket, origin, destination, adults)
@@ -595,6 +605,7 @@ def api_explore():
     origin = data.get("origin", "").strip().upper()
     budget = int(data.get("budget", 999999))
     adults = int(data.get("adults", 1))
+    one_way = data.get("one_way", False)
 
     if not origin:
         return jsonify({"error": "請填寫出發地"}), 400
@@ -620,10 +631,16 @@ def api_explore():
     results = []
     errors = []
 
+    origin_city = get_city_code(origin)
+
     for dest_code, dest_info in destinations.items():
         try:
-            raw = search_latest_prices(origin, dest_code, limit=5)
+            dest_city = get_city_code(dest_code)
+            raw = search_latest_prices(origin_city, dest_city, one_way=one_way, limit=10)
             tickets = raw.get("data", [])
+            if not tickets:
+                raw = search_latest_prices(origin, dest_code, one_way=one_way, limit=5)
+                tickets = raw.get("data", [])
 
             if tickets:
                 # 找最便宜的

@@ -577,9 +577,19 @@
                     <div class="autocomplete-list" id="exploreOriginList"></div>
                 </div>
                 <div class="field">
+                    <label>票種</label>
+                    <div style="display:flex;gap:20px;padding:10px 0;">
+                        <label style="cursor:pointer;"><input type="radio" name="exploreTrip" value="oneway" checked> 單程</label>
+                        <label style="cursor:pointer;"><input type="radio" name="exploreTrip" value="roundtrip"> 來回</label>
+                    </div>
+                </div>
+            </div>
+            <div class="search-row">
+                <div class="field">
                     <label>你的預算（TWD / 每人單程）</label>
                     <input type="number" id="exploreBudget" placeholder="如 5000" value="5000">
                 </div>
+                <div class="field"></div>
             </div>
             <div class="search-row">
                 <div class="field">
@@ -1082,7 +1092,7 @@
             fetch('/api/explore', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ origin, budget, adults })
+                body: JSON.stringify({ origin, budget, adults, one_way: document.querySelector('input[name="exploreTrip"]:checked').value === 'oneway' })
             })
             .then(r => r.json())
             .then(data => {
