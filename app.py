@@ -285,7 +285,8 @@ def build_booking_urls(origin, destination, depart_date, return_date=None, adult
     return google_flights_url, trip_com_url, agoda_url
 
 
-def format_flight_result(ticket, origin, destination, adults=1):
+def format_flight_result(ticket, origin, destination, adults=1,
+                         user_depart_date=None, user_return_date=None):
     """將 Travelpayouts 的票價資料整理為前端格式"""
     dep = origin.upper()
     arr = destination.upper()
@@ -301,8 +302,9 @@ def format_flight_result(ticket, origin, destination, adults=1):
     depart_time = depart_at[11:16] if len(depart_at) > 11 else ""
     return_time = return_at[11:16] if len(return_at) > 11 else ""
 
-    # 價格
+    # 價格（含來回標記）
     price = ticket.get("value", 0) or ticket.get("price", 0)
+    is_round_trip = bool(return_date)
 
     # 航空公司
     airline_code = ticket.get("airline", "")
@@ -314,9 +316,11 @@ def format_flight_result(ticket, origin, destination, adults=1):
     # 航班時長（分鐘）
     duration = ticket.get("duration", 0) or ticket.get("duration_to", 0)
 
-    # 訂票連結
+    # 訂票連結：優先用使用者搜尋的日期
+    booking_depart = user_depart_date or depart_date
+    booking_return = user_return_date or return_date
     google_url, trip_url, agoda_url = build_booking_urls(
-        dep, arr, depart_date, return_date, adults
+        dep, arr, booking_depart, booking_return, adults
     )
 
     # 台灣航空公司官網連結
@@ -349,6 +353,9 @@ def format_flight_result(ticket, origin, destination, adults=1):
     return {
         "price": price,
         "currency": "TWD",
+        "is_round_trip": is_round_trip,
+        "airline_code": airline_code,
+        "airline_name": airline_name,
         "itineraries": [itinerary],
         "booking_url": google_url,
         "trip_com_url": trip_url,
@@ -454,7 +461,11 @@ def api_search():
         # 整理結果
         results = []
         for ticket in tickets:
-            result = format_flight_result(ticket, origin, destination, adults)
+            result = format_flight_result(
+                ticket, origin, destination, adults,
+                user_depart_date=depart_date,
+                user_return_date=return_date,
+            )
             if result["price"] > 0:
                 results.append(result)
 
@@ -636,16 +647,31 @@ def api_explore():
     for dest_code, dest_info in destinations.items():
         try:
             dest_city = get_city_code(dest_code)
-            raw = search_latest_prices(origin_city, dest_city, one_way=one_way, limit=10)
-            tickets = raw.get("data", [])
-            if not tickets:
-                raw = search_latest_prices(origin, dest_code, one_way=one_way, limit=5)
+            tickets = []
+
+            # 方法 1: latest prices（城市碼 + 機場碼都試）
+            for orig, dest in [(origin_city, dest_city), (origin, dest_code), (origin, dest_city)]:
+                if tickets:
+                    break
+                raw = search_latest_prices(orig, dest, one_way=one_way, limit=10)
                 tickets = raw.get("data", [])
+
+            # 方法 2: cheap tickets
+            if not tickets:
+                for orig, dest in [(origin_city, dest_city), (origin, dest_code)]:
+                    if tickets:
+                        break
+                    raw2 = search_cheap_tickets(orig, dest)
+                    if raw2.get("data"):
+                        for dk, dd in raw2["data"].items():
+                            if isinstance(dd, dict):
+                                for k, t in dd.items():
+                                    tickets.append(t)
 
             if tickets:
                 # 找最便宜的
-                cheapest_ticket = min(tickets, key=lambda t: t.get("value", 999999))
-                cheapest_price = cheapest_ticket.get("value", 0)
+                cheapest_ticket = min(tickets, key=lambda t: t.get("value", 0) or t.get("price", 0) or 999999)
+                cheapest_price = cheapest_ticket.get("value", 0) or cheapest_ticket.get("price", 0)
                 airline_code = cheapest_ticket.get("airline", "")
                 transfers = cheapest_ticket.get("number_of_changes", 0)
                 duration = cheapest_ticket.get("duration", 0) or cheapest_ticket.get("duration_to", 0)

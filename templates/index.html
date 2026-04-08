@@ -832,6 +832,8 @@
 
                     if (label) html += `<div class="itinerary-label">${label}</div>`;
 
+                    const airlineName = r.airline_name || firstSeg.carrier_name || r.airline_code || '';
+                    const tripType = r.is_round_trip ? '來回' : '單程';
                     html += `
                         <div class="flight-main">
                             <div class="flight-info">
@@ -841,11 +843,13 @@
                                     <span>${lastSeg.arrival_airport} ${formatTime(lastSeg.arrival_time)}</span>
                                 </div>
                                 <div class="flight-meta">
-                                    <span>${firstSeg.carrier_name}</span>
+                                    <span style="font-weight:bold">${airlineName}</span>
                                     <span>${itin.duration}</span>
                                     <span>${itin.stops === 0 ? '直飛' : `轉機 ${itin.stops} 次`}</span>
+                                    <span style="color:#a0785a;font-weight:bold">${tripType}票價</span>
                                     ${r.seats_remaining ? `<span style="color:#b08968">剩 ${r.seats_remaining} 位</span>` : ''}
-                                    ${r.combo_label ? `<span style="color:#6b8e60; font-weight:bold">${r.combo_label}</span>` : (r.search_date ? `<span style="color:#6b8e60; font-weight:bold">出發日 ${r.search_date}</span>` : '')}
+                                    ${r.depart_date ? `<span style="color:#6b8e60">出發 ${r.depart_date}${r.return_date ? ' → 回程 ' + r.return_date : ''}</span>` : ''}
+                                    ${r.combo_label ? `<span style="color:#6b8e60; font-weight:bold">${r.combo_label}</span>` : ''}
                                 </div>
                                 <div class="segments-detail">
                                     ${itin.segments.map(s => `
