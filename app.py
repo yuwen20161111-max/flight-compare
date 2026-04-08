@@ -15,17 +15,24 @@ app = Flask(__name__)
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
-# ─────────────── 全球機場資料庫（7800+ 個機場） ───────────────
+# ─────────────── 全球機場資料庫（延遲載入，節省啟動時間） ───────────────
 
-_raw_airports = airportsdata.load("IATA")
-AIRPORTS_DB = {}
-for iata_code, info in _raw_airports.items():
-    AIRPORTS_DB[iata_code] = {
-        "code": iata_code,
-        "name": info.get("name", ""),
-        "city": info.get("city", ""),
-        "country": info.get("country", ""),
-    }
+AIRPORTS_DB = None
+
+def get_airports_db():
+    """延遲載入機場資料庫"""
+    global AIRPORTS_DB
+    if AIRPORTS_DB is None:
+        AIRPORTS_DB = {}
+        _raw = airportsdata.load("IATA")
+        for iata_code, info in _raw.items():
+            AIRPORTS_DB[iata_code] = {
+                "code": iata_code,
+                "name": info.get("name", ""),
+                "city": info.get("city", ""),
+                "country": info.get("country", ""),
+            }
+    return AIRPORTS_DB
 
 # IATA 城市代碼對照（主要城市有多個機場時使用城市代碼）
 CITY_CODES = {
@@ -620,11 +627,12 @@ def api_airports():
     if len(keyword) < 1:
         return jsonify([])
 
+    db = get_airports_db()
     results = []
-    if keyword in AIRPORTS_DB:
-        results.append(AIRPORTS_DB[keyword])
+    if keyword in db:
+        results.append(db[keyword])
 
-    for code, a in AIRPORTS_DB.items():
+    for code, a in db.items():
         if len(results) >= 10:
             break
         if code == keyword:
