@@ -3,7 +3,8 @@ services:
     name: flight-compare
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120
+    healthCheckPath: /
     envVars:
-      - key: SERPAPI_KEY
+      - key: TRAVELPAYOUTS_TOKEN
         sync: false
