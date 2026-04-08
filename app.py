@@ -1,6 +1,6 @@
 """
 機票比價系統 - Flight Compare
-使用 SerpApi (Google Flights) 搜尋最便宜的機票
+使用 Travelpayouts Data API 搜尋最便宜的機票（免費、無次數限制）
 """
 import json
 import os
@@ -15,37 +15,6 @@ app = Flask(__name__)
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
-# ─────────────── 搜尋次數限制（保護 API 額度） ───────────────
-DAILY_LIMIT_PER_USER = 3  # 每人每天最多搜尋 3 次
-_usage_tracker = {}  # { "ip": { "date": "2026-04-08", "count": 5 } }
-
-
-def check_rate_limit():
-    """檢查使用者今日搜尋次數是否超過限制，回傳 (allowed, remaining)"""
-    ip = request.headers.get("X-Forwarded-For", request.remote_addr) or "unknown"
-    today = datetime.now().strftime("%Y-%m-%d")
-
-    if ip not in _usage_tracker or _usage_tracker[ip]["date"] != today:
-        _usage_tracker[ip] = {"date": today, "count": 0}
-
-    current = _usage_tracker[ip]["count"]
-    remaining = DAILY_LIMIT_PER_USER - current
-
-    if remaining <= 0:
-        return False, 0
-    return True, remaining
-
-
-def increment_usage():
-    """搜尋成功後，增加使用者的計數"""
-    ip = request.headers.get("X-Forwarded-For", request.remote_addr) or "unknown"
-    today = datetime.now().strftime("%Y-%m-%d")
-
-    if ip not in _usage_tracker or _usage_tracker[ip]["date"] != today:
-        _usage_tracker[ip] = {"date": today, "count": 0}
-
-    _usage_tracker[ip]["count"] += 1
-
 # ─────────────── 全球機場資料庫（7800+ 個機場） ───────────────
 
 _raw_airports = airportsdata.load("IATA")
@@ -58,49 +27,111 @@ for iata_code, info in _raw_airports.items():
         "country": info.get("country", ""),
     }
 
+# IATA 城市代碼對照（主要城市有多個機場時使用城市代碼）
+CITY_CODES = {
+    "NRT": "TYO", "HND": "TYO",  # 東京
+    "KIX": "OSA", "ITM": "OSA",  # 大阪
+    "JFK": "NYC", "LGA": "NYC", "EWR": "NYC",  # 紐約
+    "LAX": "LAX",
+    "CDG": "PAR", "ORY": "PAR",  # 巴黎
+    "LHR": "LON", "LGW": "LON", "STN": "LON",  # 倫敦
+    "ICN": "SEL", "GMP": "SEL",  # 首爾
+    "TPE": "TPE",
+    "BKK": "BKK",
+    "SIN": "SIN",
+    "SGN": "SGN",
+}
+
 
 def load_config():
     """讀取設定：優先用環境變數（雲端部署用），否則讀 config.json（本機用）"""
-    env_key = os.environ.get("SERPAPI_KEY", "")
+    env_key = os.environ.get("TRAVELPAYOUTS_TOKEN", "")
     if env_key:
-        return {"serpapi_key": env_key}
+        return {"api_token": env_key}
+    # 也支援舊的 SERPAPI_KEY 環境變數名（過渡期）
+    env_key2 = os.environ.get("SERPAPI_KEY", "")
+    if env_key2:
+        return {"api_token": env_key2}
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"serpapi_key": ""}
+            data = json.load(f)
+            # 支援舊格式
+            token = data.get("api_token", "") or data.get("serpapi_key", "")
+            return {"api_token": token}
+    return {"api_token": ""}
 
 
-# ─────────────── SerpApi Google Flights ───────────────
+# ─────────────── 航空公司資料 ───────────────
+
+# 台灣航空公司代碼對照
+TW_AIRLINE_CODES = {
+    "CI": "中華航空", "BR": "長榮航空", "JX": "星宇航空",
+    "IT": "台灣虎航", "B7": "立榮航空", "AE": "華信航空",
+}
+TW_AIRLINE_URLS = {
+    "CI": "https://www.china-airlines.com/tw/zh/booking/book-flights/flight-search",
+    "BR": "https://www.evaair.com/zh-tw/booking/flight-search/",
+    "JX": "https://www.starlux-airlines.com/zh-TW/booking/flight-search",
+    "IT": "https://www.tigerairtw.com/zh-tw/booking",
+    "B7": "https://www.uniair.com.tw/",
+    "AE": "https://www.mandarin-airlines.com/",
+}
+
+# 常見航空公司名稱
+AIRLINE_NAMES = {
+    "CI": "中華航空", "BR": "長榮航空", "JX": "星宇航空",
+    "IT": "台灣虎航", "B7": "立榮航空", "AE": "華信航空",
+    "CX": "國泰航空", "HX": "香港航空", "KA": "國泰港龍",
+    "NH": "全日空 ANA", "JL": "日本航空 JAL", "MM": "樂桃航空",
+    "7C": "濟州航空", "TW": "德威航空", "KE": "大韓航空",
+    "OZ": "韓亞航空", "LJ": "真航空", "ZE": "易斯達航空",
+    "SQ": "新加坡航空", "TR": "酷航 Scoot", "3K": "捷星亞洲",
+    "TG": "泰國航空", "FD": "泰亞洲航空", "VJ": "越捷航空",
+    "VN": "越南航空", "QH": "越竹航空",
+    "MH": "馬來西亞航空", "AK": "亞洲航空",
+    "PR": "菲律賓航空", "5J": "宿霧太平洋",
+    "CZ": "中國南方航空", "MU": "中國東方航空", "CA": "中國國際航空",
+    "HU": "海南航空", "ZH": "深圳航空",
+    "AA": "美國航空", "UA": "聯合航空", "DL": "達美航空",
+    "AF": "法國航空", "BA": "英國航空", "LH": "漢莎航空",
+    "EK": "阿聯酋航空", "QR": "卡達航空", "TK": "土耳其航空",
+}
 
 
-def search_flights(origin, destination, depart_date, return_date=None,
-                   adults=1, nonstop=False):
-    """使用 SerpApi 搜尋 Google Flights"""
+# ─────────────── Travelpayouts Data API ───────────────
+
+API_BASE = "https://api.travelpayouts.com"
+
+
+def get_api_token():
     cfg = load_config()
-    api_key = cfg.get("serpapi_key", "")
+    return cfg.get("api_token", "")
+
+
+def search_cheap_tickets(origin, destination, depart_date=None, return_date=None,
+                         direct=False, currency="TWD"):
+    """使用 Travelpayouts 搜尋最便宜的機票"""
+    token = get_api_token()
+    if not token:
+        return {"error": "未設定 API Token"}
 
     params = {
-        "engine": "google_flights",
-        "departure_id": origin.upper(),
-        "arrival_id": destination.upper(),
-        "outbound_date": depart_date,
-        "adults": adults,
-        "currency": "TWD",
-        "hl": "zh-TW",
-        "api_key": api_key,
+        "origin": origin,
+        "destination": destination,
+        "currency": currency,
+        "token": token,
     }
 
+    if depart_date:
+        # API 接受 YYYY-MM 或 YYYY-MM-DD
+        params["depart_date"] = depart_date
     if return_date:
         params["return_date"] = return_date
-        params["type"] = "1"  # 來回
-    else:
-        params["type"] = "2"  # 單程
-
-    if nonstop:
-        params["stops"] = "0"
+    if direct:
+        params["direct"] = "true"
 
     resp = requests.get(
-        "https://serpapi.com/search.json",
+        f"{API_BASE}/v1/prices/cheap",
         params=params,
         timeout=30,
     )
@@ -108,28 +139,97 @@ def search_flights(origin, destination, depart_date, return_date=None,
     return resp.json()
 
 
-def parse_serpapi_results(raw, origin, destination, depart_date, return_date=None, adults=1):
-    """將 SerpApi 回傳的 Google Flights 資料整理為前端格式"""
-    results = []
+def search_latest_prices(origin, destination, direct=False, one_way=False,
+                         currency="TWD", limit=30):
+    """取得最新已知票價"""
+    token = get_api_token()
+    if not token:
+        return {"error": "未設定 API Token"}
 
-    # 台灣航空公司代碼對照
-    tw_airline_codes = {
-        "CI": "中華航空", "BR": "長榮航空", "JX": "星宇航空",
-        "IT": "台灣虎航", "B7": "立榮航空", "AE": "華信航空",
-    }
-    tw_airline_urls = {
-        "CI": "https://www.china-airlines.com/tw/zh/booking/book-flights/flight-search",
-        "BR": "https://www.evaair.com/zh-tw/booking/flight-search/",
-        "JX": "https://www.starlux-airlines.com/zh-TW/booking/flight-search",
-        "IT": "https://www.tigerairtw.com/zh-tw/booking",
-        "B7": "https://www.uniair.com.tw/",
-        "AE": "https://www.mandarin-airlines.com/",
+    params = {
+        "origin": origin,
+        "destination": destination,
+        "currency": currency,
+        "limit": limit,
+        "show_to_affiliates": "true",
+        "sorting": "price",
+        "token": token,
     }
 
+    if direct:
+        params["direct"] = "true"
+    if one_way:
+        params["one_way"] = "true"
+
+    resp = requests.get(
+        f"{API_BASE}/v2/prices/latest",
+        params=params,
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def search_calendar_prices(origin, destination, depart_date, return_date=None,
+                           currency="TWD"):
+    """取得日曆價格（每天的最低價）"""
+    token = get_api_token()
+    if not token:
+        return {"error": "未設定 API Token"}
+
+    params = {
+        "origin": origin,
+        "destination": destination,
+        "depart_date": depart_date,
+        "currency": currency,
+        "token": token,
+    }
+    if return_date:
+        params["return_date"] = return_date
+
+    resp = requests.get(
+        f"{API_BASE}/v1/prices/calendar",
+        params=params,
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def search_month_matrix(origin, destination, month, currency="TWD"):
+    """取得月份價格矩陣"""
+    token = get_api_token()
+    if not token:
+        return {"error": "未設定 API Token"}
+
+    params = {
+        "origin": origin,
+        "destination": destination,
+        "month": month,
+        "currency": currency,
+        "show_to_affiliates": "true",
+        "token": token,
+    }
+
+    resp = requests.get(
+        f"{API_BASE}/v2/prices/month-matrix",
+        params=params,
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def get_city_code(iata):
+    """取得城市代碼（Travelpayouts 部分 API 用城市代碼）"""
+    return CITY_CODES.get(iata, iata)
+
+
+def build_booking_urls(origin, destination, depart_date, return_date=None, adults=1):
+    """建立各平台訂票連結"""
     dep = origin.upper()
     arr = destination.upper()
 
-    # 通用訂票連結
     google_flights_url = (
         f"https://www.google.com/travel/flights?q=Flights+to+{arr}+from+{dep}+on+{depart_date}"
     )
@@ -145,158 +245,97 @@ def parse_serpapi_results(raw, origin, destination, depart_date, return_date=Non
         f"&adults={adults}&locale=zh-tw&curr=TWD"
     )
 
-    # 解析 best_flights（推薦航班）和 other_flights（其他航班）
-    all_flights = []
-    for flight in raw.get("best_flights", []):
-        flight["_tag"] = "best"
-        all_flights.append(flight)
-    for flight in raw.get("other_flights", []):
-        flight["_tag"] = "other"
-        all_flights.append(flight)
+    return google_flights_url, trip_com_url, agoda_url
 
-    for flight in all_flights:
-        price = flight.get("price")
-        if price is None:
-            continue
 
-        legs = flight.get("flights", [])
-        if not legs:
-            continue
+def format_flight_result(ticket, origin, destination, adults=1):
+    """將 Travelpayouts 的票價資料整理為前端格式"""
+    dep = origin.upper()
+    arr = destination.upper()
 
-        # 收集航空公司 & 行李資訊
-        all_carriers = set()
-        segments = []
-        baggage_info = []
-        for leg in legs:
-            carrier_code = leg.get("airline_code", "") or ""
-            carrier_name = leg.get("airline", carrier_code)
-            all_carriers.add(carrier_code)
+    # 解析日期
+    depart_at = ticket.get("departure_at", "") or ticket.get("depart_date", "")
+    return_at = ticket.get("return_at", "") or ticket.get("return_date", "")
 
-            dep_airport = leg.get("departure_airport", {})
-            arr_airport = leg.get("arrival_airport", {})
+    depart_date = depart_at[:10] if depart_at else ""
+    return_date = return_at[:10] if return_at else ""
 
-            # 行李資訊（從 extensions 取得）
-            extensions = leg.get("extensions", [])
-            for ext in extensions:
-                if ext and ext not in baggage_info:
-                    baggage_info.append(ext)
+    # 出發/到達時間
+    depart_time = depart_at[11:16] if len(depart_at) > 11 else ""
+    return_time = return_at[11:16] if len(return_at) > 11 else ""
 
-            segments.append({
-                "carrier_code": carrier_code,
-                "carrier_name": carrier_name,
-                "flight_number": f"{carrier_code}{leg.get('flight_number', '')}",
-                "departure_airport": dep_airport.get("id", ""),
-                "departure_time": dep_airport.get("time", ""),
-                "arrival_airport": arr_airport.get("id", ""),
-                "arrival_time": arr_airport.get("time", ""),
-                "duration": format_minutes(leg.get("duration", 0)),
-            })
+    # 價格
+    price = ticket.get("value", 0) or ticket.get("price", 0)
 
-        # 從 flight 層級取行李資訊
-        for ext in flight.get("extensions", []):
-            if ext and ext not in baggage_info:
-                baggage_info.append(ext)
+    # 航空公司
+    airline_code = ticket.get("airline", "")
+    airline_name = AIRLINE_NAMES.get(airline_code, airline_code)
 
-        # 解析行李細節（carry_on_bag, checked_bag 等）
-        baggage_details = parse_baggage(flight, legs)
+    # 轉機次數
+    transfers = ticket.get("number_of_changes", 0) or ticket.get("transfers", 0)
 
-        total_duration = flight.get("total_duration", 0)
-        stops = len(legs) - 1
+    # 航班時長（分鐘）
+    duration = ticket.get("duration", 0) or ticket.get("duration_to", 0)
 
-        itinerary = {
-            "duration": format_minutes(total_duration),
-            "stops": stops,
-            "segments": segments,
-        }
+    # 訂票連結
+    google_url, trip_url, agoda_url = build_booking_urls(
+        dep, arr, depart_date, return_date, adults
+    )
 
-        # 台灣航空公司官網連結
-        airline_links = []
-        for code in all_carriers:
-            if code in tw_airline_codes:
-                airline_links.append({
-                    "carrier_code": code,
-                    "name": tw_airline_codes[code],
-                    "url": tw_airline_urls[code],
-                })
-
-        results.append({
-            "price": price,
-            "currency": "TWD",
-            "itineraries": [itinerary],
-            "booking_url": google_flights_url,
-            "trip_com_url": trip_com_url,
-            "agoda_url": agoda_url,
-            "airline_links": airline_links,
-            "seats_remaining": None,
-            "is_best": flight.get("_tag") == "best",
-            "baggage_info": baggage_info,
-            "baggage": baggage_details,
+    # 台灣航空公司官網連結
+    airline_links = []
+    if airline_code in TW_AIRLINE_CODES:
+        airline_links.append({
+            "carrier_code": airline_code,
+            "name": TW_AIRLINE_CODES[airline_code],
+            "url": TW_AIRLINE_URLS[airline_code],
         })
 
-    results.sort(key=lambda x: x["price"])
-    return results
+    # 建立航段資訊
+    segments = [{
+        "carrier_code": airline_code,
+        "carrier_name": airline_name,
+        "flight_number": f"{airline_code}",
+        "departure_airport": dep,
+        "departure_time": depart_time,
+        "arrival_airport": arr,
+        "arrival_time": "",
+        "duration": format_minutes(duration) if duration else "",
+    }]
 
-
-def parse_baggage(flight, legs):
-    """解析行李資訊，整理成前端易用的格式"""
-    baggage = {
-        "carry_on": None,      # 手提行李
-        "checked_bag": None,   # 託運行李
-        "checked_bag_fee": None,  # 託運費用
+    itinerary = {
+        "duration": format_minutes(duration) if duration else "",
+        "stops": transfers,
+        "segments": segments,
     }
 
-    # 方法 1：從 flight.extensions 裡找（常見格式）
-    all_extensions = list(flight.get("extensions", []))
-    for leg in legs:
-        all_extensions.extend(leg.get("extensions", []))
-
-    for ext in all_extensions:
-        if not ext:
-            continue
-        ext_lower = ext.lower()
-
-        # 手提行李
-        if "carry-on" in ext_lower or "carry on" in ext_lower or "cabin" in ext_lower:
-            baggage["carry_on"] = ext
-        # 託運行李（免費）
-        elif ("checked" in ext_lower or "baggage" in ext_lower) and ("free" in ext_lower or "included" in ext_lower):
-            baggage["checked_bag"] = ext
-        # 託運行李（付費）
-        elif "checked" in ext_lower or ("bag" in ext_lower and ("fee" in ext_lower or "$" in ext_lower or "charge" in ext_lower)):
-            baggage["checked_bag_fee"] = ext
-        # 沒有託運
-        elif "no checked" in ext_lower:
-            baggage["checked_bag"] = ext
-
-    # 方法 2：從 flight 頂層的 baggage 欄位
-    if "carry_on_bag" in flight:
-        info = flight["carry_on_bag"]
-        if isinstance(info, dict):
-            baggage["carry_on"] = info.get("description", str(info))
-        elif isinstance(info, list) and info:
-            baggage["carry_on"] = str(info[0])
-
-    if "checked_bag" in flight:
-        info = flight["checked_bag"]
-        if isinstance(info, dict):
-            desc = info.get("description", "")
-            price = info.get("price")
-            if price:
-                baggage["checked_bag_fee"] = f"{desc} ({price})" if desc else str(price)
-            else:
-                baggage["checked_bag"] = desc or str(info)
-        elif isinstance(info, list) and info:
-            baggage["checked_bag"] = str(info[0])
-
-    return baggage
+    return {
+        "price": price,
+        "currency": "TWD",
+        "itineraries": [itinerary],
+        "booking_url": google_url,
+        "trip_com_url": trip_url,
+        "agoda_url": agoda_url,
+        "airline_links": airline_links,
+        "seats_remaining": None,
+        "is_best": False,
+        "baggage_info": [],
+        "baggage": {
+            "carry_on": "依航空公司規定",
+            "checked_bag": None,
+            "checked_bag_fee": None,
+        },
+        "depart_date": depart_date,
+        "return_date": return_date,
+    }
 
 
 def format_minutes(minutes):
     """將分鐘數轉為易讀格式"""
     if not minutes:
         return ""
-    h = minutes // 60
-    m = minutes % 60
+    h = int(minutes) // 60
+    m = int(minutes) % 60
     return f"{h}h {m:02d}m"
 
 
@@ -311,10 +350,6 @@ def index():
 @app.route("/api/search", methods=["POST"])
 def api_search():
     """搜尋航班 API"""
-    allowed, remaining = check_rate_limit()
-    if not allowed:
-        return jsonify({"error": "⚠️ 今日搜尋次數已達上限（每人每天 3 次），明天再來吧！"}), 429
-
     data = request.json
     origin = data.get("origin", "").strip().upper()
     destination = data.get("destination", "").strip().upper()
@@ -327,17 +362,46 @@ def api_search():
         return jsonify({"error": "請填寫出發地、目的地和出發日期"}), 400
 
     try:
-        increment_usage()
-        raw = search_flights(origin, destination, depart_date,
-                             return_date=return_date, adults=adults,
-                             nonstop=nonstop)
+        # 方法 1：用 latest prices 取得最新票價
+        raw = search_latest_prices(
+            origin, destination,
+            direct=nonstop,
+            one_way=(return_date is None),
+            limit=30,
+        )
 
-        # 檢查 API 錯誤
         if "error" in raw:
             return jsonify({"error": f"API 錯誤：{raw['error']}"}), 500
 
-        results = parse_serpapi_results(raw, origin, destination, depart_date, return_date=return_date, adults=adults)
+        tickets = raw.get("data", [])
+
+        # 方法 2：如果 latest 沒結果，嘗試 cheap tickets
+        if not tickets:
+            raw2 = search_cheap_tickets(
+                origin, destination,
+                depart_date=depart_date[:7],  # YYYY-MM
+                return_date=return_date[:7] if return_date else None,
+                direct=nonstop,
+            )
+            if "data" in raw2 and destination in raw2["data"]:
+                dest_data = raw2["data"][destination]
+                for key, ticket in dest_data.items():
+                    tickets.append(ticket)
+
+        # 整理結果
+        results = []
+        for ticket in tickets:
+            result = format_flight_result(ticket, origin, destination, adults)
+            if result["price"] > 0:
+                results.append(result)
+
+        # 標記最便宜的為 best
+        results.sort(key=lambda x: x["price"])
+        if results:
+            results[0]["is_best"] = True
+
         return jsonify({"results": results, "count": len(results)})
+
     except requests.exceptions.HTTPError as e:
         error_detail = str(e)
         try:
@@ -353,14 +417,8 @@ def api_search():
 def api_smart_search():
     """
     智慧搜尋：只要給預算 + 來回地點，自動掃未來日期找最便宜的來回機票。
-    會搜未來 60 天，取樣 8 個出發日 × 搭配回程（3/5/7 天後），
-    幫用戶找到預算內最划算的組合。
+    使用 Travelpayouts calendar API + month matrix 找最划算的日期。
     """
-    allowed, remaining = check_rate_limit()
-    if not allowed:
-        return jsonify({"error": "⚠️ 今日搜尋次數已達上限（每人每天 3 次），明天再來吧！"}), 429
-    increment_usage()
-
     data = request.json
     origin = data.get("origin", "").strip().upper()
     destination = data.get("destination", "").strip().upper()
@@ -368,67 +426,81 @@ def api_smart_search():
     adults = int(data.get("adults", 1))
     nonstop = data.get("nonstop", False)
     trip_days_options = [int(d) for d in data.get("trip_days", [3, 5, 7])]
-    search_months = int(data.get("search_months", 2))  # 搜尋幾個月
+    search_months = int(data.get("search_months", 2))
 
     if not origin or not destination:
         return jsonify({"error": "請填寫出發地和目的地"}), 400
     if budget <= 0:
         return jsonify({"error": "請輸入有效的預算金額"}), 400
 
-    # 根據搜尋範圍，在未來 N 個月內均勻取樣 8~10 個出發日
-    today = datetime.now()
-    total_days_range = search_months * 30
-    num_samples = min(10, max(6, search_months * 3))  # 2月=6, 3月=9, 6月=10, 12月=10
-    step = max(total_days_range // num_samples, 7)
-
-    sample_depart_dates = []
-    for i in range(num_samples):
-        d = today + timedelta(days=7 + i * step)
-        if d > today + timedelta(days=total_days_range):
-            break
-        sample_depart_dates.append(d)
-
     all_results = []
-    searched_combos = []
     errors = []
+    searched_combos = []
 
-    for dep_date in sample_depart_dates:
-        for trip_days in trip_days_options:
-            ret_date = dep_date + timedelta(days=trip_days)
-            dep_str = dep_date.strftime("%Y-%m-%d")
-            ret_str = ret_date.strftime("%Y-%m-%d")
-            combo_label = f"{dep_str} ~ {ret_str}（{trip_days}天）"
-            searched_combos.append(combo_label)
+    try:
+        # 方法 1：用 month-matrix 取得多個月份的價格
+        today = datetime.now()
+        for i in range(search_months):
+            month_date = today + timedelta(days=30 * i)
+            month_str = month_date.strftime("%Y-%m-01")
 
             try:
-                raw = search_flights(
-                    origin, destination, dep_str,
-                    return_date=ret_str, adults=adults, nonstop=nonstop
-                )
+                raw = search_month_matrix(origin, destination, month_str)
+
                 if "error" in raw:
-                    errors.append(f"{combo_label}: {raw['error']}")
+                    errors.append(f"{month_str}: {raw['error']}")
                     continue
 
-                results = parse_serpapi_results(raw, origin, destination, dep_str)
+                tickets = raw.get("data", [])
+                for ticket in tickets:
+                    result = format_flight_result(ticket, origin, destination, adults)
+                    if result["price"] > 0:
+                        # 計算旅程天數
+                        if result.get("depart_date") and result.get("return_date"):
+                            try:
+                                dep_dt = datetime.strptime(result["depart_date"], "%Y-%m-%d")
+                                ret_dt = datetime.strptime(result["return_date"], "%Y-%m-%d")
+                                trip_days = (ret_dt - dep_dt).days
+                                result["trip_days"] = trip_days
+                                result["combo_label"] = f"{result['depart_date']} 出發 → {result['return_date']} 回來（{trip_days}天）"
 
-                for r in results:
-                    r["search_date"] = dep_str
-                    r["return_date"] = ret_str
-                    r["trip_days"] = trip_days
-                    r["combo_label"] = f"{dep_str} 出發 → {ret_str} 回來（{trip_days}天）"
+                                # 只保留符合旅行天數的
+                                if trip_days_options and trip_days not in trip_days_options:
+                                    # 允許 ±1 天的彈性
+                                    if not any(abs(trip_days - opt) <= 1 for opt in trip_days_options):
+                                        continue
+                            except Exception:
+                                result["trip_days"] = 0
+                                result["combo_label"] = f"{result.get('depart_date', '?')} 出發"
 
-                all_results.extend(results)
-                time.sleep(0.5)
+                        all_results.append(result)
+                        searched_combos.append(result.get("combo_label", ""))
+
+                time.sleep(0.2)
 
             except Exception as e:
-                errors.append(f"{combo_label}: {str(e)}")
+                errors.append(f"{month_str}: {str(e)}")
                 continue
+
+        # 方法 2：如果 month-matrix 沒結果，用 latest prices
+        if not all_results:
+            raw = search_latest_prices(origin, destination, direct=nonstop, limit=30)
+            tickets = raw.get("data", [])
+            for ticket in tickets:
+                result = format_flight_result(ticket, origin, destination, adults)
+                if result["price"] > 0:
+                    result["trip_days"] = 0
+                    result["combo_label"] = f"{result.get('depart_date', '?')} 出發"
+                    all_results.append(result)
+
+    except Exception as e:
+        errors.append(str(e))
 
     # 篩選預算內
     filtered = [r for r in all_results if r["price"] <= budget]
     filtered.sort(key=lambda x: x["price"])
 
-    # 如果預算內沒有，就回傳全部最便宜的（讓用戶知道最低價是多少）
+    # 如果預算內沒有，回傳全部最便宜的
     show_all = False
     if not filtered and all_results:
         all_results.sort(key=lambda x: x["price"])
@@ -458,11 +530,6 @@ def api_explore():
     預算探索：給預算 + 出發地，自動掃描熱門目的地，
     看這個預算能去哪裡。
     """
-    allowed, remaining = check_rate_limit()
-    if not allowed:
-        return jsonify({"error": "⚠️ 今日搜尋次數已達上限（每人每天 3 次），明天再來吧！"}), 429
-    increment_usage()
-
     data = request.json
     origin = data.get("origin", "").strip().upper()
     budget = int(data.get("budget", 999999))
@@ -475,84 +542,61 @@ def api_explore():
 
     # 10 個精選目的地（6 亞洲 / 2 美洲 / 2 歐洲）
     POPULAR_DESTINATIONS = {
-        # 亞洲 × 6
         "NRT": {"name": "東京", "region": "日本"},
         "KIX": {"name": "大阪", "region": "日本"},
         "ICN": {"name": "首爾", "region": "韓國"},
         "BKK": {"name": "曼谷", "region": "泰國"},
         "SGN": {"name": "胡志明市", "region": "越南"},
         "SIN": {"name": "新加坡", "region": "新加坡"},
-        # 美洲 × 2
         "LAX": {"name": "洛杉磯", "region": "美國"},
         "JFK": {"name": "紐約", "region": "美國"},
-        # 歐洲 × 2
         "CDG": {"name": "巴黎", "region": "法國"},
         "LHR": {"name": "倫敦", "region": "英國"},
     }
 
-    # 排除自己
     destinations = {k: v for k, v in POPULAR_DESTINATIONS.items() if k != origin}
-
-    # 只搜一個日期（省 API 額度）：未來 3 週
-    today = datetime.now()
-    sample_dates = [(today + timedelta(days=21)).strftime("%Y-%m-%d")]
 
     results = []
     errors = []
 
     for dest_code, dest_info in destinations.items():
-        cheapest = None
-        cheapest_date = None
+        try:
+            raw = search_latest_prices(origin, dest_code, limit=5)
+            tickets = raw.get("data", [])
 
-        for dep_date in sample_dates:
-            try:
-                raw = search_flights(origin, dest_code, dep_date, adults=adults)
-                if "error" in raw:
-                    continue
+            if tickets:
+                # 找最便宜的
+                cheapest_ticket = min(tickets, key=lambda t: t.get("value", 999999))
+                cheapest_price = cheapest_ticket.get("value", 0)
+                airline_code = cheapest_ticket.get("airline", "")
+                transfers = cheapest_ticket.get("number_of_changes", 0)
+                duration = cheapest_ticket.get("duration", 0) or cheapest_ticket.get("duration_to", 0)
+                depart_date = (cheapest_ticket.get("departure_at", "") or "")[:10]
 
-                # 只看最便宜的
-                all_flights = raw.get("best_flights", []) + raw.get("other_flights", [])
-                for f in all_flights:
-                    price = f.get("price")
-                    if price and (cheapest is None or price < cheapest):
-                        cheapest = price
-                        cheapest_date = dep_date
+                google_url, trip_url, agoda_url = build_booking_urls(
+                    origin, dest_code, depart_date
+                )
 
-                        # 取航班資訊
-                        legs = f.get("flights", [])
-                        if legs:
-                            first_leg = legs[0]
-                            cheapest_info = {
-                                "carrier": first_leg.get("airline", ""),
-                                "duration": f.get("total_duration", 0),
-                                "stops": len(legs) - 1,
-                            }
+                results.append({
+                    "destination_code": dest_code,
+                    "destination_name": dest_info["name"],
+                    "region": dest_info["region"],
+                    "cheapest_price": cheapest_price,
+                    "cheapest_date": depart_date,
+                    "carrier": AIRLINE_NAMES.get(airline_code, airline_code),
+                    "duration": format_minutes(duration) if duration else "",
+                    "stops": transfers,
+                    "in_budget": cheapest_price <= budget,
+                    "google_url": google_url,
+                    "trip_url": trip_url,
+                    "agoda_url": agoda_url,
+                })
 
-                time.sleep(0.3)
-            except Exception as e:
-                errors.append(f"{dest_code}: {str(e)}")
-                continue
+            time.sleep(0.2)
 
-        if cheapest is not None:
-            # 訂票連結
-            google_url = f"https://www.google.com/travel/flights?q=Flights+to+{dest_code}+from+{origin}"
-            trip_url = f"https://www.trip.com/flights/{origin.lower()}-to-{dest_code.lower()}/tickets-{origin.lower()}-{dest_code.lower()}?Allianceid=8060886&SID=304954294"
-            agoda_url = f"https://www.agoda.com/zh-tw/flights/results?cid=-1&departureFrom={origin}&departureTo={dest_code}&locale=zh-tw&curr=TWD"
-
-            results.append({
-                "destination_code": dest_code,
-                "destination_name": dest_info["name"],
-                "region": dest_info["region"],
-                "cheapest_price": cheapest,
-                "cheapest_date": cheapest_date,
-                "carrier": cheapest_info.get("carrier", ""),
-                "duration": format_minutes(cheapest_info.get("duration", 0)),
-                "stops": cheapest_info.get("stops", 0),
-                "in_budget": cheapest <= budget,
-                "google_url": google_url,
-                "trip_url": trip_url,
-                "agoda_url": agoda_url,
-            })
+        except Exception as e:
+            errors.append(f"{dest_code}: {str(e)}")
+            continue
 
     results.sort(key=lambda x: x["cheapest_price"])
     in_budget = [r for r in results if r["in_budget"]]
@@ -576,17 +620,15 @@ def api_airports():
     if len(keyword) < 1:
         return jsonify([])
 
-    # 精確匹配 IATA 代碼優先
     results = []
     if keyword in AIRPORTS_DB:
         results.append(AIRPORTS_DB[keyword])
 
-    # 模糊搜尋名稱、城市、國家
     for code, a in AIRPORTS_DB.items():
         if len(results) >= 10:
             break
         if code == keyword:
-            continue  # 已加過
+            continue
         searchable = f"{a['code']} {a['name']} {a['city']} {a['country']}".upper()
         if keyword in searchable:
             results.append(a)
@@ -597,18 +639,18 @@ def api_airports():
 def api_config_status():
     """檢查 API 設定狀態"""
     cfg = load_config()
-    configured = bool(cfg.get("serpapi_key"))
+    configured = bool(cfg.get("api_token"))
     return jsonify({"configured": configured})
 
 
 @app.route("/api/config", methods=["POST"])
 def api_config_save():
     """儲存 API 設定（僅本機模式可用）"""
-    if os.environ.get("SERPAPI_KEY"):
-        return jsonify({"ok": True, "msg": "雲端模式，API Key 已透過環境變數設定"})
+    if os.environ.get("TRAVELPAYOUTS_TOKEN") or os.environ.get("SERPAPI_KEY"):
+        return jsonify({"ok": True, "msg": "雲端模式，API Token 已透過環境變數設定"})
     data = request.json
     cfg = load_config()
-    cfg["serpapi_key"] = data.get("api_key", "").strip()
+    cfg["api_token"] = data.get("api_key", "").strip()
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
     return jsonify({"ok": True})
