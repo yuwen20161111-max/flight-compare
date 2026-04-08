@@ -7,7 +7,6 @@ import os
 import time
 from datetime import datetime, timedelta
 
-import airportsdata
 import requests
 from flask import Flask, jsonify, render_template, request
 
@@ -15,23 +14,52 @@ app = Flask(__name__)
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
-# ─────────────── 全球機場資料庫（延遲載入，節省啟動時間） ───────────────
+# ─────────────── 全球機場資料庫（從 Travelpayouts 免費 API 取得） ───────────────
 
 AIRPORTS_DB = None
 
 def get_airports_db():
-    """延遲載入機場資料庫"""
+    """從 Travelpayouts 免費 API 載入全球機場資料（快取在記憶體）"""
     global AIRPORTS_DB
-    if AIRPORTS_DB is None:
-        AIRPORTS_DB = {}
-        _raw = airportsdata.load("IATA")
-        for iata_code, info in _raw.items():
-            AIRPORTS_DB[iata_code] = {
-                "code": iata_code,
-                "name": info.get("name", ""),
-                "city": info.get("city", ""),
-                "country": info.get("country", ""),
-            }
+    if AIRPORTS_DB is not None:
+        return AIRPORTS_DB
+
+    AIRPORTS_DB = {}
+    try:
+        resp = requests.get(
+            "https://api.travelpayouts.com/data/zh-TW/airports.json",
+            timeout=15,
+        )
+        resp.raise_for_status()
+        airports = resp.json()
+        for a in airports:
+            code = a.get("code", "")
+            if code and len(code) == 3:
+                AIRPORTS_DB[code] = {
+                    "code": code,
+                    "name": a.get("name", "") or a.get("name_translations", {}).get("en", ""),
+                    "city": a.get("city_code", ""),
+                    "country": a.get("country_code", ""),
+                }
+    except Exception:
+        # 如果 API 失敗，用基本的熱門機場
+        AIRPORTS_DB = {
+            "TPE": {"code": "TPE", "name": "桃園國際機場", "city": "TPE", "country": "TW"},
+            "TSA": {"code": "TSA", "name": "台北松山機場", "city": "TPE", "country": "TW"},
+            "KHH": {"code": "KHH", "name": "高雄國際機場", "city": "KHH", "country": "TW"},
+            "NRT": {"code": "NRT", "name": "成田國際機場", "city": "TYO", "country": "JP"},
+            "HND": {"code": "HND", "name": "羽田機場", "city": "TYO", "country": "JP"},
+            "KIX": {"code": "KIX", "name": "關西國際機場", "city": "OSA", "country": "JP"},
+            "ICN": {"code": "ICN", "name": "仁川國際機場", "city": "SEL", "country": "KR"},
+            "BKK": {"code": "BKK", "name": "素萬那普機場", "city": "BKK", "country": "TH"},
+            "SIN": {"code": "SIN", "name": "樟宜機場", "city": "SIN", "country": "SG"},
+            "HKG": {"code": "HKG", "name": "香港國際機場", "city": "HKG", "country": "HK"},
+            "SGN": {"code": "SGN", "name": "胡志明市機場", "city": "SGN", "country": "VN"},
+            "LAX": {"code": "LAX", "name": "洛杉磯機場", "city": "LAX", "country": "US"},
+            "JFK": {"code": "JFK", "name": "紐約甘迺迪機場", "city": "NYC", "country": "US"},
+            "CDG": {"code": "CDG", "name": "巴黎戴高樂機場", "city": "PAR", "country": "FR"},
+            "LHR": {"code": "LHR", "name": "倫敦希斯洛機場", "city": "LON", "country": "GB"},
+        }
     return AIRPORTS_DB
 
 # IATA 城市代碼對照（主要城市有多個機場時使用城市代碼）
