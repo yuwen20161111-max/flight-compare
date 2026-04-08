@@ -1,5 +1,5 @@
 flask==3.1.0
 requests==2.32.3
 python-dateutil==2.9.0
-airportsdata==20250401
+airportsdata>=20240101
 gunicorn==23.0.0
