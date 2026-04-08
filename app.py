@@ -238,12 +238,7 @@ def build_booking_urls(origin, destination, depart_date, return_date=None, adult
         f"?dcity={dep}&acity={arr}&ddate={depart_date}"
         f"&Allianceid=8060886&SID=304954294"
     )
-    agoda_url = (
-        f"https://www.agoda.com/zh-tw/flights?departureFrom={dep}&departureTo={arr}"
-        f"&departDate={depart_date}"
-        f"{'&returnDate=' + return_date if return_date else ''}"
-        f"&paxAdult={adults}&currency=TWD"
-    )
+    agoda_url = "https://www.agoda.com/zh-tw/flights"
 
     return google_flights_url, trip_com_url, agoda_url
 
