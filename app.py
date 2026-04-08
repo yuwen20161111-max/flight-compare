@@ -238,7 +238,11 @@ def build_booking_urls(origin, destination, depart_date, return_date=None, adult
         f"?dcity={dep}&acity={arr}&ddate={depart_date}"
         f"&Allianceid=8060886&SID=304954294"
     )
-    agoda_url = "https://www.agoda.com/zh-tw/flights"
+    # Agoda 用 flights.agoda.com + 路徑參數格式
+    if return_date:
+        agoda_url = f"https://flights.agoda.com/flights/{dep}-{arr}/{depart_date}/{return_date}/{adults}adults"
+    else:
+        agoda_url = f"https://flights.agoda.com/flights/{dep}-{arr}/{depart_date}/{adults}adults"
 
     return google_flights_url, trip_com_url, agoda_url
 
